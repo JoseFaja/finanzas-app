@@ -1,10 +1,6 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { SignInButton, SignOutButton } from "@/components/auth-buttons";
 
-export default async function Home() {
-  const session = await getServerSession(authOptions);
-
+export default function Home() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
       <main className="w-full max-w-2xl rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
@@ -16,19 +12,13 @@ export default async function Home() {
 
         <section className="mt-6 rounded-lg bg-slate-100 p-4">
           <h2 className="font-semibold text-slate-800">Sesion</h2>
-          {session ? (
-            <div className="mt-3 space-y-3 text-sm text-slate-700">
-              <p>
-                Sesion activa: <strong>{session.user?.email}</strong>
-              </p>
+          <div className="mt-3 space-y-3 text-sm text-slate-700">
+            <p>No has iniciado sesion.</p>
+            <div className="flex gap-3">
+              <SignInButton />
               <SignOutButton />
             </div>
-          ) : (
-            <div className="mt-3 space-y-3 text-sm text-slate-700">
-              <p>No has iniciado sesion.</p>
-              <SignInButton />
-            </div>
-          )}
+          </div>
         </section>
 
         <section className="mt-6 rounded-lg border border-slate-200 p-4">
