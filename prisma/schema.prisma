@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Usuario {
+  id          Int       @id @default(autoincrement())
+  nombre      String?
+  apellido    String?
+  correo      String    @unique
+  googleSub   String    @unique
+  creadoEn    DateTime  @default(now())
+  actualizado DateTime  @updatedAt
+
+  cuentas       Cuenta[]
+  transacciones Transaccion[]
+}
+
+model Cuenta {
+  id            Int      @id @default(autoincrement())
+  idUsuario     Int
+  nombre        String
+  tipoCuenta    String
+  saldoActual   Float    @default(0)
+  fechaCreacion DateTime @default(now())
+
+  usuario       Usuario      @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+  transacciones Transaccion[]
+
+  @@index([idUsuario])
+}
+
+model Categoria {
+  id            Int           @id @default(autoincrement())
+  nombre        String        @unique
+  transacciones Transaccion[]
+}
+
+model Transaccion {
+  id           Int      @id @default(autoincrement())
+  idUsuario    Int
+  idCuenta     Int
+  idCategoria  Int?
+  monto        Float
+  descripcion  String?
+  fecha        DateTime @default(now())
+  esIngreso    Boolean  @default(false)
+  metodoPago   String?
+
+  usuario      Usuario   @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+  cuenta       Cuenta    @relation(fields: [idCuenta], references: [id], onDelete: Cascade)
+  categoria    Categoria? @relation(fields: [idCategoria], references: [id])
+
+  @@index([idUsuario])
+  @@index([idCuenta])
+}

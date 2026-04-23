@@ -1,64 +1,45 @@
-import Image from "next/image";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { SignInButton, SignOutButton } from "@/components/auth-buttons";
 
-export default function Home() {
+export default async function Home() {
+  const session = await getServerSession(authOptions);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
+      <main className="w-full max-w-2xl rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <h1 className="text-2xl font-bold text-slate-900">Finanzas App</h1>
+        <p className="mt-2 text-slate-600">
+          Base inicial lista: autenticacion con Google y CRUD de cuentas y
+          transacciones protegido por usuario.
+        </p>
+
+        <section className="mt-6 rounded-lg bg-slate-100 p-4">
+          <h2 className="font-semibold text-slate-800">Sesion</h2>
+          {session ? (
+            <div className="mt-3 space-y-3 text-sm text-slate-700">
+              <p>
+                Sesion activa: <strong>{session.user?.email}</strong>
+              </p>
+              <SignOutButton />
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3 text-sm text-slate-700">
+              <p>No has iniciado sesion.</p>
+              <SignInButton />
+            </div>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-lg border border-slate-200 p-4">
+          <h2 className="font-semibold text-slate-800">Endpoints disponibles</h2>
+          <ul className="mt-3 space-y-2 text-sm text-slate-700">
+            <li>GET/POST /api/cuentas</li>
+            <li>PUT/DELETE /api/cuentas/:id</li>
+            <li>GET/POST /api/transacciones</li>
+            <li>PUT/DELETE /api/transacciones/:id</li>
+          </ul>
+        </section>
       </main>
     </div>
   );
