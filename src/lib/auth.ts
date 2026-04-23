@@ -2,6 +2,14 @@ import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { prisma } from "@/lib/prisma";
 
+type GoogleProfile = {
+  sub?: string;
+  email_verified?: boolean;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+};
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -14,29 +22,39 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async signIn({ user, profile }) {
-      if (!user.email || !profile?.sub) {
+      const p = profile as GoogleProfile | undefined;
+
+      if (!user.email || !p?.sub) {
         return false;
       }
 
-      const existing = await prisma.usuario.findUnique({
-        where: { correo: user.email },
-      });
+      const nombre =
+        p.given_name ?? user.name?.split(" ")[0] ?? null;
+      const apellido =
+        p.family_name ?? (user.name?.split(" ").slice(1).join(" ") || null);
 
-      if (!existing) {
-        await prisma.usuario.create({
-          data: {
-            correo: user.email,
-            nombre: user.name?.split(" ")[0] ?? null,
-            apellido: user.name?.split(" ").slice(1).join(" ") || null,
-            googleSub: profile.sub,
-          },
-        });
-      } else if (existing.googleSub !== profile.sub) {
-        await prisma.usuario.update({
-          where: { id: existing.id },
-          data: { googleSub: profile.sub },
-        });
-      }
+      await prisma.usuario.upsert({
+        where: { correo: user.email },
+        update: {
+          googleSub: p.sub,
+          nombre,
+          apellido,
+          googleImage: p.picture ?? user.image ?? null,
+          emailVerificado: p.email_verified ?? null,
+          proveedor: "google",
+          ultimoLogin: new Date(),
+        },
+        create: {
+          correo: user.email,
+          googleSub: p.sub,
+          nombre,
+          apellido,
+          googleImage: p.picture ?? user.image ?? null,
+          emailVerificado: p.email_verified ?? null,
+          proveedor: "google",
+          ultimoLogin: new Date(),
+        },
+      });
 
       return true;
     },

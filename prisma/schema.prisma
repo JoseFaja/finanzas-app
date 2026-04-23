@@ -6,54 +6,257 @@ datasource db {
   provider = "postgresql"
 }
 
-model Usuario {
-  id          Int       @id @default(autoincrement())
-  nombre      String?
-  apellido    String?
-  correo      String    @unique
-  googleSub   String    @unique
-  creadoEn    DateTime  @default(now())
-  actualizado DateTime  @updatedAt
-
-  cuentas       Cuenta[]
-  transacciones Transaccion[]
+model TipoDocumento {
+  id       Int       @id @default(autoincrement())
+  nombre   String    @db.VarChar(200)
+  usuarios Usuario[]
 }
 
-model Cuenta {
-  id            Int      @id @default(autoincrement())
-  idUsuario     Int
-  nombre        String
-  tipoCuenta    String
-  saldoActual   Float    @default(0)
-  fechaCreacion DateTime @default(now())
+model Estado {
+  id     Int    @id @default(autoincrement())
+  nombre String @db.VarChar(200)
 
-  usuario       Usuario      @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
-  transacciones Transaccion[]
+  usuarios  Usuario[]            @relation("EstadoUsuario")
+  deudas    Deuda[]              @relation("EstadoDeuda")
+  objetivos ObjetivoFinanciero[] @relation("EstadoObjetivo")
+  planes    PlanFinanciero[]     @relation("EstadoPlan")
+}
 
-  @@index([idUsuario])
+model TipoCuenta {
+  id      Int      @id @default(autoincrement())
+  nombre  String   @db.VarChar(200)
+  cuentas Cuenta[]
 }
 
 model Categoria {
   id            Int           @id @default(autoincrement())
-  nombre        String        @unique
+  descripcion   String        @db.VarChar(200)
   transacciones Transaccion[]
 }
 
-model Transaccion {
-  id           Int      @id @default(autoincrement())
-  idUsuario    Int
-  idCuenta     Int
-  idCategoria  Int?
-  monto        Float
-  descripcion  String?
-  fecha        DateTime @default(now())
-  esIngreso    Boolean  @default(false)
-  metodoPago   String?
+model MetodoPago {
+  id            Int           @id @default(autoincrement())
+  nombre        String        @db.VarChar(200)
+  transacciones Transaccion[]
+}
 
-  usuario      Usuario   @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
-  cuenta       Cuenta    @relation(fields: [idCuenta], references: [id], onDelete: Cascade)
-  categoria    Categoria? @relation(fields: [idCategoria], references: [id])
+model FrecuenciaPago {
+  id            Int           @id @default(autoincrement())
+  nombre        String        @db.VarChar(200)
+  deudas        Deuda[]
+  transacciones Transaccion[]
+}
+
+model TipoDeuda {
+  id     Int     @id @default(autoincrement())
+  nombre String  @db.VarChar(200)
+  deudas Deuda[]
+}
+
+model TipoObjetivo {
+  id        Int                  @id @default(autoincrement())
+  nombre    String               @db.VarChar(200)
+  objetivos ObjetivoFinanciero[]
+}
+
+model Prioridad {
+  id          Int                  @id @default(autoincrement())
+  nombre      String               @db.VarChar(200)
+  objetivos   ObjetivoFinanciero[]
+  estrategias EstrategiaPlan[]
+}
+
+model NivelRiesgo {
+  id     Int               @id @default(autoincrement())
+  nombre String            @db.VarChar(200)
+  planes PlanFinanciero[]
+  scores ScoreFinanciero[]
+}
+
+model Usuario {
+  id       Int     @id @default(autoincrement())
+  nombre   String? @db.VarChar(200)
+  apellido String? @db.VarChar(200)
+  correo   String  @unique @db.VarChar(200)
+
+  idTipoDocumento Int?
+  tipoDocumento   TipoDocumento? @relation(fields: [idTipoDocumento], references: [id])
+
+  idEstado Int?
+  estado   Estado? @relation("EstadoUsuario", fields: [idEstado], references: [id])
+
+  numeroDocumento String? @db.VarChar(200)
+
+  googleSub       String    @unique @db.VarChar(200)
+  googleImage     String?   @db.VarChar(500)
+  emailVerificado Boolean?  @default(false)
+  proveedor       String?   @default("google") @db.VarChar(50)
+  ultimoLogin     DateTime?
+
+  creadoEn    DateTime @default(now())
+  actualizado DateTime @updatedAt
+
+  cuentas       Cuenta[]
+  transacciones Transaccion[]
+  deudas        Deuda[]
+  objetivos     ObjetivoFinanciero[]
+  planes        PlanFinanciero[]
+  scores        ScoreFinanciero[]
+}
+
+model Cuenta {
+  id        Int     @id @default(autoincrement())
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  nombre       String     @db.VarChar(200)
+  idTipoCuenta Int
+  tipoCuenta   TipoCuenta @relation(fields: [idTipoCuenta], references: [id])
+
+  saldoActual   Decimal  @db.Decimal(14, 2)
+  fechaCreacion DateTime @default(now())
+
+  transacciones Transaccion[]
+  objetivos     ObjetivoFinanciero[]
+
+  @@index([idUsuario])
+  @@index([idTipoCuenta])
+}
+
+model Deuda {
+  id Int @id @default(autoincrement())
+
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  idTipoDeuda Int
+  tipoDeuda   TipoDeuda @relation(fields: [idTipoDeuda], references: [id])
+
+  montoTotal     Decimal @db.Decimal(14, 2)
+  saldoPendiente Decimal @db.Decimal(14, 2)
+  tasaIntereses  Decimal @db.Decimal(8, 4)
+  cuotas         Int
+  cuotasPagadas  Int     @default(0)
+
+  idFrecuenciaPago Int?
+  frecuenciaPago   FrecuenciaPago? @relation(fields: [idFrecuenciaPago], references: [id])
+
+  idEstado Int?
+  estado   Estado? @relation("EstadoDeuda", fields: [idEstado], references: [id])
+
+  transacciones Transaccion[]
+
+  @@index([idUsuario])
+}
+
+model Transaccion {
+  id Int @id @default(autoincrement())
+
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  idCuenta Int
+  cuenta   Cuenta @relation(fields: [idCuenta], references: [id], onDelete: Cascade)
+
+  idCategoria Int?
+  categoria   Categoria? @relation(fields: [idCategoria], references: [id])
+
+  monto       Decimal  @db.Decimal(14, 2)
+  descripcion String?  @db.VarChar(200)
+  fecha       DateTime @default(now())
+
+  idMetodoPago Int?
+  metodoPago   MetodoPago? @relation(fields: [idMetodoPago], references: [id])
+
+  esIngreso Boolean @default(false)
+
+  idDeuda Int?
+  deuda   Deuda? @relation(fields: [idDeuda], references: [id])
+
+  idFrecuenciaPago Int?
+  frecuenciaPago   FrecuenciaPago? @relation(fields: [idFrecuenciaPago], references: [id])
 
   @@index([idUsuario])
   @@index([idCuenta])
+}
+
+model ObjetivoFinanciero {
+  id Int @id @default(autoincrement())
+
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  nombreObjetivo String @db.VarChar(200)
+
+  idTipoObjetivo Int
+  tipoObjetivo   TipoObjetivo @relation(fields: [idTipoObjetivo], references: [id])
+
+  montoMeta   Decimal  @db.Decimal(14, 2)
+  fechaLimite DateTime
+
+  idPrioridad Int?
+  prioridad   Prioridad? @relation(fields: [idPrioridad], references: [id])
+
+  idEstado Int?
+  estado   Estado? @relation("EstadoObjetivo", fields: [idEstado], references: [id])
+
+  idCuenta Int?
+  cuenta   Cuenta? @relation(fields: [idCuenta], references: [id])
+
+  @@index([idUsuario])
+}
+
+model PlanFinanciero {
+  id Int @id @default(autoincrement())
+
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  fechaGeneracion DateTime @default(now())
+
+  ingresoMensualEstimado Decimal @db.Decimal(14, 2)
+  gastoMensualEstimado   Decimal @db.Decimal(14, 2)
+  ahorroSugerido         Decimal @db.Decimal(14, 2)
+
+  idNivelRiesgo Int?
+  nivelRiesgo   NivelRiesgo? @relation(fields: [idNivelRiesgo], references: [id])
+
+  idEstado Int?
+  estado   Estado? @relation("EstadoPlan", fields: [idEstado], references: [id])
+
+  estrategias EstrategiaPlan[]
+
+  @@index([idUsuario])
+}
+
+model EstrategiaPlan {
+  id Int @id @default(autoincrement())
+
+  idPlan Int
+  plan   PlanFinanciero @relation(fields: [idPlan], references: [id], onDelete: Cascade)
+
+  descripcion String @db.VarChar(200)
+
+  idPrioridad Int?
+  prioridad   Prioridad? @relation(fields: [idPrioridad], references: [id])
+
+  tipoEstrategia String @db.VarChar(100)
+}
+
+model ScoreFinanciero {
+  id Int @id @default(autoincrement())
+
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  puntaje Decimal @db.Decimal(8, 2)
+
+  idNivelRiesgo Int?
+  nivelRiesgo   NivelRiesgo? @relation(fields: [idNivelRiesgo], references: [id])
+
+  ratioGastoIngreso Decimal  @db.Decimal(10, 4)
+  capacidadAhorro   Decimal  @db.Decimal(14, 2)
+  fechaCalculo      DateTime @default(now())
+
+  @@index([idUsuario])
 }
