@@ -1,32 +1,84 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { TrendingUp, TrendingDown, Award } from "lucide-react";
 import { Badge } from "./ui/badge";
+import { fetchJson } from "./figma-api";
+
+interface ScoreFactor {
+  nombre: string;
+  valor: number;
+  descripcion: string;
+}
+
+interface ScoreHistoryPoint {
+  month: string;
+  score: number;
+}
+
+interface ScoreFlowPoint {
+  month: string;
+  ingresos: number;
+  gastos: number;
+  ahorros: number;
+}
+
+interface ScoreResponse {
+  scoreActual: number;
+  historial: ScoreHistoryPoint[];
+  factores: ScoreFactor[];
+  flujo: ScoreFlowPoint[];
+}
 
 export function ScoreView() {
-  const currentScore = 720;
-  const previousScore = 680;
+  const [scoreData, setScoreData] = useState<ScoreResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadData() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetchJson<ScoreResponse>("/api/score");
+
+        if (!active) {
+          return;
+        }
+
+        setScoreData(response);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setError(error instanceof Error ? error.message : "No se pudo cargar el score");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const currentScore = scoreData?.scoreActual ?? 0;
+  const previousScore = scoreData?.historial?.at(-2)?.score ?? currentScore;
   const scoreDiff = currentScore - previousScore;
 
-  const monthlyScoreData = [
-    { month: "Oct", score: 650 },
-    { month: "Nov", score: 660 },
-    { month: "Dic", score: 670 },
-    { month: "Ene", score: 680 },
-    { month: "Feb", score: 690 },
-    { month: "Mar", score: 710 },
-    { month: "Abr", score: 720 },
-  ];
-
-  const financialMetrics = [
-    { month: "Oct", ingresos: 4500000, gastos: 3800000, ahorros: 700000 },
-    { month: "Nov", ingresos: 4500000, gastos: 3600000, ahorros: 900000 },
-    { month: "Dic", ingresos: 5200000, gastos: 4100000, ahorros: 1100000 },
-    { month: "Ene", ingresos: 4500000, gastos: 3500000, ahorros: 1000000 },
-    { month: "Feb", ingresos: 5700000, gastos: 3700000, ahorros: 2000000 },
-    { month: "Mar", ingresos: 4500000, gastos: 3400000, ahorros: 1100000 },
-    { month: "Abr", ingresos: 4500000, gastos: 3200000, ahorros: 1300000 },
-  ];
+  const monthlyScoreData = scoreData?.historial ?? [];
+  const financialMetrics = scoreData?.flujo ?? [];
+  const scoreFactors = scoreData?.factores ?? [];
 
   const getScoreRating = (score: number) => {
     if (score >= 750) return { label: "Excelente", color: "bg-green-600" };
@@ -38,41 +90,23 @@ export function ScoreView() {
 
   const rating = getScoreRating(currentScore);
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("es-CO", {
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("es-CO", {
       style: "currency",
       currency: "COP",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(value);
-  };
 
-  const scoreFactors = [
-    {
-      name: "Ratio de ahorro",
-      value: 85,
-      description: "Excelente capacidad de ahorro mensual",
-      impact: "positive",
-    },
-    {
-      name: "Gestión de deudas",
-      value: 70,
-      description: "Deudas bajo control, pago puntual",
-      impact: "positive",
-    },
-    {
-      name: "Diversificación",
-      value: 60,
-      description: "Puedes mejorar diversificando tus cuentas",
-      impact: "neutral",
-    },
-    {
-      name: "Consistencia",
-      value: 90,
-      description: "Excelente historial de transacciones regulares",
-      impact: "positive",
-    },
-  ];
+  const factorRows = useMemo(
+    () =>
+      scoreFactors.map((factor) => ({
+        ...factor,
+        impact:
+          factor.valor >= 70 ? ("positive" as const) : factor.valor >= 50 ? ("neutral" as const) : ("negative" as const),
+      })),
+    [scoreFactors],
+  );
 
   return (
     <div className="space-y-6">
@@ -83,11 +117,14 @@ export function ScoreView() {
         </p>
       </div>
 
+      {loading ? <p className="text-sm text-muted-foreground">Cargando score...</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Award className="w-5 h-5" />
+              <Award className="h-5 w-5" />
               Score Actual
             </CardTitle>
           </CardHeader>
@@ -101,12 +138,12 @@ export function ScoreView() {
                 <Badge className={rating.color}>{rating.label}</Badge>
                 {scoreDiff > 0 ? (
                   <div className="flex items-center gap-1 text-sm text-green-600">
-                    <TrendingUp className="w-4 h-4" />
+                    <TrendingUp className="h-4 w-4" />
                     +{scoreDiff} pts
                   </div>
                 ) : scoreDiff < 0 ? (
                   <div className="flex items-center gap-1 text-sm text-red-600">
-                    <TrendingDown className="w-4 h-4" />
+                    <TrendingDown className="h-4 w-4" />
                     {scoreDiff} pts
                   </div>
                 ) : null}
@@ -125,7 +162,7 @@ export function ScoreView() {
               <LineChart data={monthlyScoreData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
-                <YAxis domain={[600, 800]} />
+                <YAxis domain={[0, 1000]} />
                 <Tooltip />
                 <Line
                   type="monotone"
@@ -149,16 +186,16 @@ export function ScoreView() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {scoreFactors.map((factor) => (
-              <div key={factor.name} className="space-y-2">
+            {factorRows.map((factor) => (
+              <div key={factor.nombre} className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p>{factor.name}</p>
-                    <p className="text-sm text-muted-foreground">{factor.description}</p>
+                    <p>{factor.nombre}</p>
+                    <p className="text-sm text-muted-foreground">{factor.descripcion}</p>
                   </div>
-                  <span className="text-lg">{factor.value}/100</span>
+                  <span className="text-lg">{factor.valor}/100</span>
                 </div>
-                <div className="w-full bg-secondary rounded-full h-2">
+                <div className="h-2 w-full rounded-full bg-secondary">
                   <div
                     className={`h-2 rounded-full ${
                       factor.impact === "positive"
@@ -167,7 +204,7 @@ export function ScoreView() {
                         ? "bg-yellow-600"
                         : "bg-red-600"
                     }`}
-                    style={{ width: `${factor.value}%` }}
+                    style={{ width: `${factor.valor}%` }}
                   />
                 </div>
               </div>
@@ -186,7 +223,7 @@ export function ScoreView() {
             <AreaChart data={financialMetrics}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
+              <YAxis tickFormatter={(value) => formatCurrency(Number(value))} />
               <Tooltip
                 formatter={(value) => formatCurrency(Number(value ?? 0))}
                 labelStyle={{ color: "hsl(var(--foreground))" }}

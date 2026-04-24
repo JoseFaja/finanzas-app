@@ -1,4 +1,6 @@
-import { useState } from "react";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
@@ -6,81 +8,144 @@ import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Plus, Trash2, CreditCard } from "lucide-react";
 import { Progress } from "./ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { fetchJson } from "./figma-api";
 
-interface Debt {
-  id: string;
-  name: string;
-  totalAmount: number;
-  paidAmount: number;
-  interestRate: number;
-  monthlyPayment: number;
-  dueDate: string;
+interface CatalogItem {
+  id: number;
+  nombre: string;
+}
+
+interface DebtRecord {
+  id: number;
+  montoTotal: number | string;
+  saldoPendiente: number | string;
+  tasaIntereses: number | string;
+  cuotas: number;
+  cuotasPagadas: number;
+  tipoDeuda: CatalogItem;
+  frecuenciaPago: CatalogItem | null;
 }
 
 export function DebtsView() {
-  const [debts, setDebts] = useState<Debt[]>([
-    {
-      id: "1",
-      name: "Préstamo Vehículo",
-      totalAmount: 25000000,
-      paidAmount: 8000000,
-      interestRate: 1.2,
-      monthlyPayment: 850000,
-      dueDate: "2028-04-15",
-    },
-    {
-      id: "2",
-      name: "Tarjeta de Crédito",
-      totalAmount: 3500000,
-      paidAmount: 1200000,
-      interestRate: 2.5,
-      monthlyPayment: 450000,
-      dueDate: "2027-12-01",
-    },
-  ]);
+  const [debts, setDebts] = useState<DebtRecord[]>([]);
+  const [debtTypes, setDebtTypes] = useState<CatalogItem[]>([]);
+  const [paymentFrequencies, setPaymentFrequencies] = useState<CatalogItem[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [newDebt, setNewDebt] = useState({
-    name: "",
-    totalAmount: 0,
-    paidAmount: 0,
-    interestRate: 0,
-    monthlyPayment: 0,
-    dueDate: "",
+    idTipoDeuda: "",
+    montoTotal: "0",
+    saldoPendiente: "0",
+    tasaIntereses: "0",
+    cuotas: "12",
+    cuotasPagadas: "0",
+    idFrecuenciaPago: "",
   });
 
-  const handleAddDebt = () => {
-    setDebts([
-      ...debts,
-      {
-        id: Date.now().toString(),
-        ...newDebt,
-      },
-    ]);
-    setNewDebt({
-      name: "",
-      totalAmount: 0,
-      paidAmount: 0,
-      interestRate: 0,
-      monthlyPayment: 0,
-      dueDate: "",
-    });
-    setIsDialogOpen(false);
-  };
+  useEffect(() => {
+    let active = true;
 
-  const handleDeleteDebt = (id: string) => {
-    setDebts(debts.filter((debt) => debt.id !== id));
-  };
+    async function loadData() {
+      setLoading(true);
+      setError(null);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-CO", {
+      try {
+        const [debtsResponse, debtTypesResponse, paymentFrequenciesResponse] = await Promise.all([
+          fetchJson<DebtRecord[]>("/api/deudas"),
+          fetchJson<CatalogItem[]>("/api/catalogos/tipo-deuda"),
+          fetchJson<CatalogItem[]>("/api/catalogos/frecuencia-pago"),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setDebts(debtsResponse);
+        setDebtTypes(debtTypesResponse);
+        setPaymentFrequencies(paymentFrequenciesResponse);
+        setNewDebt((current) => ({
+          ...current,
+          idTipoDeuda: current.idTipoDeuda || String(debtTypesResponse[0]?.id ?? ""),
+          idFrecuenciaPago: current.idFrecuenciaPago || String(paymentFrequenciesResponse[0]?.id ?? ""),
+        }));
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setError(error instanceof Error ? error.message : "No se pudieron cargar las deudas");
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("es-CO", {
       style: "currency",
       currency: "COP",
       minimumFractionDigits: 0,
     }).format(amount);
+
+  const totalDebt = useMemo(
+    () =>
+      debts.reduce(
+        (sum, debt) => sum + (Number(debt.montoTotal) - Number(debt.saldoPendiente)),
+        0,
+      ),
+    [debts],
+  );
+
+  const totalMonthlyPayment = useMemo(
+    () =>
+      debts.reduce((sum, debt) => {
+        const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 1);
+        return sum + Number(debt.saldoPendiente) / remainingInstallments;
+      }, 0),
+    [debts],
+  );
+
+  const handleAddDebt = async () => {
+    await fetchJson<DebtRecord>("/api/deudas", {
+      method: "POST",
+      body: JSON.stringify({
+        idTipoDeuda: Number(newDebt.idTipoDeuda),
+        montoTotal: Number(newDebt.montoTotal),
+        saldoPendiente: Number(newDebt.saldoPendiente),
+        tasaIntereses: Number(newDebt.tasaIntereses),
+        cuotas: Number(newDebt.cuotas),
+        cuotasPagadas: Number(newDebt.cuotasPagadas),
+        idFrecuenciaPago: newDebt.idFrecuenciaPago ? Number(newDebt.idFrecuenciaPago) : undefined,
+      }),
+    });
+
+    setNewDebt({
+      idTipoDeuda: debtTypes[0] ? String(debtTypes[0].id) : "",
+      montoTotal: "0",
+      saldoPendiente: "0",
+      tasaIntereses: "0",
+      cuotas: "12",
+      cuotasPagadas: "0",
+      idFrecuenciaPago: paymentFrequencies[0] ? String(paymentFrequencies[0].id) : "",
+    });
+    setIsDialogOpen(false);
+    setDebts(await fetchJson<DebtRecord[]>("/api/deudas"));
   };
 
-  const totalDebt = debts.reduce((sum, debt) => sum + (debt.totalAmount - debt.paidAmount), 0);
-  const totalMonthlyPayment = debts.reduce((sum, debt) => sum + debt.monthlyPayment, 0);
+  const handleDeleteDebt = async (id: number) => {
+    await fetchJson(`/api/deudas/${id}`, { method: "DELETE" });
+    setDebts(await fetchJson<DebtRecord[]>("/api/deudas"));
+  };
 
   return (
     <div className="space-y-6">
@@ -90,10 +155,13 @@ export function DebtsView() {
           <p className="text-muted-foreground">Administra tus préstamos y deudas</p>
         </div>
         <Button onClick={() => setIsDialogOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           Nueva deuda
         </Button>
       </div>
+
+      {loading ? <p className="text-sm text-muted-foreground">Cargando deudas...</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -116,23 +184,21 @@ export function DebtsView() {
 
       <div className="space-y-4">
         {debts.map((debt) => {
-          const progress = (debt.paidAmount / debt.totalAmount) * 100;
-          const remaining = debt.totalAmount - debt.paidAmount;
+          const progress = (debt.cuotasPagadas / debt.cuotas) * 100;
+          const remaining = Number(debt.saldoPendiente);
+          const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 1);
+          const estimatedMonthlyPayment = remaining / remainingInstallments;
 
           return (
             <Card key={debt.id}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <CreditCard className="w-5 h-5" />
-                    <CardTitle>{debt.name}</CardTitle>
+                    <CreditCard className="h-5 w-5" />
+                    <CardTitle>{debt.tipoDeuda?.nombre}</CardTitle>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteDebt(debt.id)}
-                  >
-                    <Trash2 className="w-4 h-4 text-destructive" />
+                  <Button variant="ghost" size="sm" onClick={() => void handleDeleteDebt(debt.id)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </CardHeader>
@@ -147,19 +213,27 @@ export function DebtsView() {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Monto total</p>
-                    <p>{formatCurrency(debt.totalAmount)}</p>
+                    <p>{formatCurrency(Number(debt.montoTotal))}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Pendiente</p>
                     <p className="text-red-600">{formatCurrency(remaining)}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Pago mensual</p>
-                    <p>{formatCurrency(debt.monthlyPayment)}</p>
+                    <p className="text-muted-foreground">Pago mensual estimado</p>
+                    <p>{formatCurrency(estimatedMonthlyPayment)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Tasa de interés</p>
-                    <p>{debt.interestRate}% mensual</p>
+                    <p>{Number(debt.tasaIntereses).toFixed(2)}% mensual</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Cuotas</p>
+                    <p>{debt.cuotasPagadas}/{debt.cuotas}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Frecuencia</p>
+                    <p>{debt.frecuenciaPago?.nombre || "Sin frecuencia"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -175,33 +249,60 @@ export function DebtsView() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <Label htmlFor="debt-name">Nombre de la deuda</Label>
-              <Input
-                id="debt-name"
-                value={newDebt.name}
-                onChange={(e) => setNewDebt({ ...newDebt, name: e.target.value })}
-                placeholder="Ej: Préstamo Hipotecario"
-              />
+              <Label htmlFor="debt-type">Tipo de deuda</Label>
+              <Select
+                value={newDebt.idTipoDeuda}
+                onValueChange={(value) => setNewDebt({ ...newDebt, idTipoDeuda: value })}
+              >
+                <SelectTrigger id="debt-type">
+                  <SelectValue placeholder="Selecciona un tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {debtTypes.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>
+                      {item.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="debt-frequency">Frecuencia de pago</Label>
+              <Select
+                value={newDebt.idFrecuenciaPago}
+                onValueChange={(value) => setNewDebt({ ...newDebt, idFrecuenciaPago: value })}
+              >
+                <SelectTrigger id="debt-frequency">
+                  <SelectValue placeholder="Opcional" />
+                </SelectTrigger>
+                <SelectContent>
+                  {paymentFrequencies.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>
+                      {item.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="debt-total">Monto total</Label>
               <Input
                 id="debt-total"
                 type="number"
-                value={newDebt.totalAmount}
+                value={newDebt.montoTotal}
                 onChange={(e) =>
-                  setNewDebt({ ...newDebt, totalAmount: parseFloat(e.target.value) || 0 })
+                  setNewDebt({ ...newDebt, montoTotal: e.target.value })
                 }
               />
             </div>
             <div>
-              <Label htmlFor="debt-paid">Monto pagado</Label>
+              <Label htmlFor="debt-pending">Monto pendiente</Label>
               <Input
-                id="debt-paid"
+                id="debt-pending"
                 type="number"
-                value={newDebt.paidAmount}
+                value={newDebt.saldoPendiente}
                 onChange={(e) =>
-                  setNewDebt({ ...newDebt, paidAmount: parseFloat(e.target.value) || 0 })
+                  setNewDebt({ ...newDebt, saldoPendiente: e.target.value })
                 }
               />
             </div>
@@ -211,33 +312,33 @@ export function DebtsView() {
                 id="debt-interest"
                 type="number"
                 step="0.1"
-                value={newDebt.interestRate}
+                value={newDebt.tasaIntereses}
                 onChange={(e) =>
-                  setNewDebt({ ...newDebt, interestRate: parseFloat(e.target.value) || 0 })
+                  setNewDebt({ ...newDebt, tasaIntereses: e.target.value })
                 }
               />
             </div>
             <div>
-              <Label htmlFor="debt-payment">Pago mensual</Label>
+              <Label htmlFor="debt-installments">Cuotas</Label>
               <Input
-                id="debt-payment"
+                id="debt-installments"
                 type="number"
-                value={newDebt.monthlyPayment}
-                onChange={(e) =>
-                  setNewDebt({ ...newDebt, monthlyPayment: parseFloat(e.target.value) || 0 })
-                }
+                value={newDebt.cuotas}
+                onChange={(e) => setNewDebt({ ...newDebt, cuotas: e.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor="debt-duedate">Fecha de vencimiento</Label>
+              <Label htmlFor="debt-paid-installments">Cuotas pagadas</Label>
               <Input
-                id="debt-duedate"
-                type="date"
-                value={newDebt.dueDate}
-                onChange={(e) => setNewDebt({ ...newDebt, dueDate: e.target.value })}
+                id="debt-paid-installments"
+                type="number"
+                value={newDebt.cuotasPagadas}
+                onChange={(e) =>
+                  setNewDebt({ ...newDebt, cuotasPagadas: e.target.value })
+                }
               />
             </div>
-            <Button onClick={handleAddDebt} className="w-full">
+            <Button onClick={() => void handleAddDebt()} className="w-full">
               Agregar deuda
             </Button>
           </div>

@@ -1,4 +1,6 @@
-import { useState } from "react";
+"use client";
+
+import { useEffect, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -7,61 +9,86 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Upload, X } from "lucide-react";
 
+interface CatalogItem {
+  id: number;
+  nombre: string;
+}
+
 interface UserProfile {
-  name: string;
-  lastName: string;
-  email: string;
-  documentType: string;
-  documentNumber: string;
-  avatar: string;
+  id: number;
+  nombre: string | null;
+  apellido: string | null;
+  correo: string;
+  numeroDocumento: string | null;
+  idTipoDocumento: number | null;
+  googleImage: string | null;
+  tipoDocumento: CatalogItem | null;
+  estado: CatalogItem | null;
 }
 
 interface ProfileEditorProps {
   isOpen: boolean;
   onClose: () => void;
   profile: UserProfile;
-  onSave: (profile: UserProfile) => void;
+  documentTypes: CatalogItem[];
+  onSave: (profile: UserProfile) => Promise<void> | void;
 }
 
-export function ProfileEditor({ isOpen, onClose, profile, onSave }: ProfileEditorProps) {
+export function ProfileEditor({
+  isOpen,
+  onClose,
+  profile,
+  documentTypes,
+  onSave,
+}: ProfileEditorProps) {
   const [editedProfile, setEditedProfile] = useState(profile);
-  const [previewImage, setPreviewImage] = useState(profile.avatar);
+  const [previewImage, setPreviewImage] = useState(profile.googleImage ?? "");
+
+  useEffect(() => {
+    setEditedProfile(profile);
+    setPreviewImage(profile.googleImage ?? "");
+  }, [profile]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewImage(reader.result as string);
-        setEditedProfile({ ...editedProfile, avatar: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+
+    if (!file) {
+      return;
     }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const image = reader.result as string;
+      setPreviewImage(image);
+      setEditedProfile((current) => ({ ...current, googleImage: image }));
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleSave = () => {
-    onSave(editedProfile);
+  const handleSave = async () => {
+    await onSave(editedProfile);
     onClose();
   };
 
+  const initials =
+    `${editedProfile.nombre?.[0] ?? ""}${editedProfile.apellido?.[0] ?? ""}` || "U";
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar Perfil</DialogTitle>
         </DialogHeader>
         <div className="space-y-6 py-4">
           <div className="flex flex-col items-center gap-4">
-            <Avatar className="w-24 h-24">
+            <Avatar className="h-24 w-24">
               <AvatarImage src={previewImage} />
-              <AvatarFallback>
-                {editedProfile.name[0]}{editedProfile.lastName[0]}
-              </AvatarFallback>
+              <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
             <div className="flex gap-2">
               <Label htmlFor="avatar-upload" className="cursor-pointer">
-                <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90">
-                  <Upload className="w-4 h-4" />
+                <div className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90">
+                  <Upload className="h-4 w-4" />
                   Cambiar imagen
                 </div>
                 <Input
@@ -72,18 +99,21 @@ export function ProfileEditor({ isOpen, onClose, profile, onSave }: ProfileEdito
                   onChange={handleImageChange}
                 />
               </Label>
-              {previewImage !== profile.avatar && (
+              {previewImage !== (profile.googleImage ?? "") ? (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setPreviewImage(profile.avatar);
-                    setEditedProfile({ ...editedProfile, avatar: profile.avatar });
+                    setPreviewImage(profile.googleImage ?? "");
+                    setEditedProfile((current) => ({
+                      ...current,
+                      googleImage: profile.googleImage,
+                    }));
                   }}
                 >
-                  <X className="w-4 h-4" />
+                  <X className="h-4 w-4" />
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -92,8 +122,10 @@ export function ProfileEditor({ isOpen, onClose, profile, onSave }: ProfileEdito
               <Label htmlFor="name">Nombre</Label>
               <Input
                 id="name"
-                value={editedProfile.name}
-                onChange={(e) => setEditedProfile({ ...editedProfile, name: e.target.value })}
+                value={editedProfile.nombre ?? ""}
+                onChange={(e) =>
+                  setEditedProfile({ ...editedProfile, nombre: e.target.value })
+                }
               />
             </div>
 
@@ -101,36 +133,38 @@ export function ProfileEditor({ isOpen, onClose, profile, onSave }: ProfileEdito
               <Label htmlFor="lastName">Apellido</Label>
               <Input
                 id="lastName"
-                value={editedProfile.lastName}
-                onChange={(e) => setEditedProfile({ ...editedProfile, lastName: e.target.value })}
+                value={editedProfile.apellido ?? ""}
+                onChange={(e) =>
+                  setEditedProfile({ ...editedProfile, apellido: e.target.value })
+                }
               />
             </div>
 
             <div>
               <Label htmlFor="email">Correo electrónico</Label>
-              <Input
-                id="email"
-                type="email"
-                value={editedProfile.email}
-                onChange={(e) => setEditedProfile({ ...editedProfile, email: e.target.value })}
-              />
+              <Input id="email" type="email" value={editedProfile.correo} disabled />
             </div>
 
             <div>
               <Label htmlFor="documentType">Tipo de documento</Label>
               <Select
-                value={editedProfile.documentType}
-                onValueChange={(value) => setEditedProfile({ ...editedProfile, documentType: value })}
+                value={editedProfile.idTipoDocumento ? String(editedProfile.idTipoDocumento) : ""}
+                onValueChange={(value) =>
+                  setEditedProfile({
+                    ...editedProfile,
+                    idTipoDocumento: value ? Number(value) : null,
+                  })
+                }
               >
                 <SelectTrigger id="documentType">
-                  <SelectValue />
+                  <SelectValue placeholder="Selecciona un tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="CC">Cédula de Ciudadanía</SelectItem>
-                  <SelectItem value="CE">Cédula de Extranjería</SelectItem>
-                  <SelectItem value="PP">Pasaporte</SelectItem>
-                  <SelectItem value="TI">Tarjeta de Identidad</SelectItem>
-                  <SelectItem value="NIT">NIT</SelectItem>
+                  {documentTypes.map((item) => (
+                    <SelectItem key={item.id} value={String(item.id)}>
+                      {item.nombre}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -139,8 +173,13 @@ export function ProfileEditor({ isOpen, onClose, profile, onSave }: ProfileEdito
               <Label htmlFor="documentNumber">Número de documento</Label>
               <Input
                 id="documentNumber"
-                value={editedProfile.documentNumber}
-                onChange={(e) => setEditedProfile({ ...editedProfile, documentNumber: e.target.value })}
+                value={editedProfile.numeroDocumento ?? ""}
+                onChange={(e) =>
+                  setEditedProfile({
+                    ...editedProfile,
+                    numeroDocumento: e.target.value,
+                  })
+                }
               />
             </div>
           </div>

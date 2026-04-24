@@ -2,6 +2,19 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
 
+function monthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(date: Date) {
+  const label = new Intl.DateTimeFormat("es-CO", { month: "short" }).format(date);
+  return label.charAt(0).toUpperCase() + label.slice(1).replace(".", "");
+}
+
+function currency(value: unknown) {
+  return Number(value ?? 0);
+}
+
 export async function GET() {
   try {
     const userId = await requireUserId();
@@ -13,31 +26,57 @@ export async function GET() {
     ]);
 
     const ingresos = transacciones
-      .filter((t) => t.esIngreso)
-      .reduce((acc, t) => acc + Number(t.monto), 0);
+      .filter((transaction) => transaction.esIngreso)
+      .reduce((sum, transaction) => sum + currency(transaction.monto), 0);
     const gastos = transacciones
-      .filter((t) => !t.esIngreso)
-      .reduce((acc, t) => acc + Number(t.monto), 0);
+      .filter((transaction) => !transaction.esIngreso)
+      .reduce((sum, transaction) => sum + currency(transaction.monto), 0);
     const ahorro = Math.max(ingresos - gastos, 0);
 
     const ratioAhorro = ingresos > 0 ? Math.min((ahorro / ingresos) * 100, 100) : 0;
-    const deudaTotal = deudas.reduce((acc, d) => acc + Number(d.saldoPendiente), 0);
-    const activos = cuentas.reduce((acc, c) => acc + Number(c.saldoActual), 0);
-    const ratioDeuda = deudaTotal > 0 ? Math.max(0, 100 - (deudaTotal / Math.max(activos, 1)) * 100) : 100;
+    const deudaTotal = deudas.reduce((sum, deuda) => sum + currency(deuda.saldoPendiente), 0);
+    const activos = cuentas.reduce((sum, cuenta) => sum + currency(cuenta.saldoActual), 0);
+    const ratioDeuda =
+      deudaTotal > 0 ? Math.max(0, 100 - (deudaTotal / Math.max(activos, 1)) * 100) : 100;
 
-    const scoreActual = Math.round(ratioAhorro * 4 + ratioDeuda * 3 + 300);
+    const currentDate = new Date();
+    const months = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - (6 - index), 1);
+      return date;
+    });
 
-    const payload = {
-      scoreActual: Math.max(0, Math.min(scoreActual, 1000)),
-      historial: [
-        { mes: "Oct", score: 680 },
-        { mes: "Nov", score: 690 },
-        { mes: "Dic", score: 705 },
-        { mes: "Ene", score: 700 },
-        { mes: "Feb", score: 720 },
-        { mes: "Mar", score: 715 },
-        { mes: "Abr", score: Math.max(0, Math.min(scoreActual, 1000)) },
-      ],
+    const monthlyData = months.map((date) => {
+      const key = monthKey(date);
+      const monthTransactions = transacciones.filter((transaction) =>
+        monthKey(new Date(transaction.fecha)) === key,
+      );
+
+      const monthIncome = monthTransactions
+        .filter((transaction) => transaction.esIngreso)
+        .reduce((sum, transaction) => sum + currency(transaction.monto), 0);
+      const monthExpenses = monthTransactions
+        .filter((transaction) => !transaction.esIngreso)
+        .reduce((sum, transaction) => sum + currency(transaction.monto), 0);
+      const monthSavings = Math.max(monthIncome - monthExpenses, 0);
+      const monthScore = Math.max(
+        0,
+        Math.min(Math.round((monthIncome > 0 ? (monthSavings / Math.max(monthIncome, 1)) * 100 : 0) * 4 + ratioDeuda * 3 + 300), 1000),
+      );
+
+      return {
+        month: monthLabel(date),
+        score: monthScore,
+        ingresos: monthIncome,
+        gastos: monthExpenses,
+        ahorros: monthSavings,
+      };
+    });
+
+    const currentScore = monthlyData[monthlyData.length - 1]?.score ?? 300;
+
+    return NextResponse.json({
+      scoreActual: currentScore,
+      historial: monthlyData.map(({ month, score }) => ({ month, score })),
       factores: [
         {
           nombre: "Ratio de ahorro",
@@ -52,21 +91,16 @@ export async function GET() {
         {
           nombre: "Consistencia",
           valor: Math.min(transacciones.length * 5, 100),
-          descripcion: "Historial de movimientos financieros",
+          descripcion: "Historial de transacciones reales",
         },
       ],
-      flujo: [
-        { mes: "Oct", ingresos: 4.5, gastos: 3.8, ahorros: 0.7 },
-        { mes: "Nov", ingresos: 4.5, gastos: 3.7, ahorros: 0.8 },
-        { mes: "Dic", ingresos: 5.2, gastos: 4.0, ahorros: 1.2 },
-        { mes: "Ene", ingresos: 4.5, gastos: 3.5, ahorros: 1.0 },
-        { mes: "Feb", ingresos: 5.8, gastos: 3.7, ahorros: 2.1 },
-        { mes: "Mar", ingresos: 4.5, gastos: 3.4, ahorros: 1.1 },
-        { mes: "Abr", ingresos: 4.5, gastos: 3.2, ahorros: 1.3 },
-      ],
-    };
-
-    return NextResponse.json(payload);
+      flujo: monthlyData.map(({ month, ingresos: monthIncome, gastos: monthExpenses, ahorros: monthSavings }) => ({
+        month,
+        ingresos: monthIncome,
+        gastos: monthExpenses,
+        ahorros: monthSavings,
+      })),
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
