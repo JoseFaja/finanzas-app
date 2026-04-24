@@ -6,11 +6,13 @@ import { requireUserId } from "@/lib/require-user";
 const updateTransaccionSchema = z.object({
   idCuenta: z.number().int().positive().optional(),
   idCategoria: z.number().int().positive().nullable().optional(),
+  idMetodoPago: z.number().int().positive().nullable().optional(),
+  idFrecuenciaPago: z.number().int().positive().nullable().optional(),
+  idDeuda: z.number().int().positive().nullable().optional(),
   monto: z.number().finite().optional(),
   descripcion: z.string().max(300).nullable().optional(),
   fecha: z.string().datetime().optional(),
   esIngreso: z.boolean().optional(),
-  metodoPago: z.string().max(100).nullable().optional(),
 });
 
 function parseId(params: { id: string }) {
@@ -70,7 +72,18 @@ export async function PUT(
           payload.descripcion !== undefined ? payload.descripcion : undefined,
         fecha: payload.fecha ? new Date(payload.fecha) : undefined,
         esIngreso: payload.esIngreso,
-        metodoPago: payload.metodoPago !== undefined ? payload.metodoPago : undefined,
+        idMetodoPago:
+          payload.idMetodoPago !== undefined ? payload.idMetodoPago : undefined,
+        idFrecuenciaPago:
+          payload.idFrecuenciaPago !== undefined
+            ? payload.idFrecuenciaPago
+            : undefined,
+        idDeuda: payload.idDeuda !== undefined ? payload.idDeuda : undefined,
+      },
+      include: {
+        cuenta: { select: { id: true, nombre: true } },
+        categoria: { select: { id: true, descripcion: true } },
+        metodoPago: { select: { id: true, nombre: true } },
       },
     });
 

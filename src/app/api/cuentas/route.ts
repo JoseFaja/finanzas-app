@@ -5,7 +5,7 @@ import { requireUserId } from "@/lib/require-user";
 
 const createCuentaSchema = z.object({
   nombre: z.string().min(2),
-  tipoCuenta: z.string().min(2),
+  idTipoCuenta: z.number().int().positive(),
   saldoActual: z.number().finite().default(0),
 });
 
@@ -15,6 +15,11 @@ export async function GET() {
 
     const cuentas = await prisma.cuenta.findMany({
       where: { idUsuario: userId },
+      include: {
+        tipoCuenta: {
+          select: { id: true, nombre: true },
+        },
+      },
       orderBy: { id: "desc" },
     });
 
@@ -38,8 +43,13 @@ export async function POST(req: Request) {
       data: {
         idUsuario: userId,
         nombre: payload.nombre,
-        tipoCuenta: payload.tipoCuenta,
+        idTipoCuenta: payload.idTipoCuenta,
         saldoActual: payload.saldoActual,
+      },
+      include: {
+        tipoCuenta: {
+          select: { id: true, nombre: true },
+        },
       },
     });
 

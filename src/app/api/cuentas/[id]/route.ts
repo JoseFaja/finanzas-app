@@ -5,7 +5,7 @@ import { requireUserId } from "@/lib/require-user";
 
 const updateCuentaSchema = z.object({
   nombre: z.string().min(2).optional(),
-  tipoCuenta: z.string().min(2).optional(),
+  idTipoCuenta: z.number().int().positive().optional(),
   saldoActual: z.number().finite().optional(),
 });
 
@@ -42,6 +42,11 @@ export async function PUT(
     const updated = await prisma.cuenta.update({
       where: { id: cuentaId },
       data: payload,
+      include: {
+        tipoCuenta: {
+          select: { id: true, nombre: true },
+        },
+      },
     });
 
     return NextResponse.json(updated);

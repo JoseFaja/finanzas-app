@@ -6,11 +6,13 @@ import { requireUserId } from "@/lib/require-user";
 const createTransaccionSchema = z.object({
   idCuenta: z.number().int().positive(),
   idCategoria: z.number().int().positive().optional(),
+  idMetodoPago: z.number().int().positive().optional(),
+  idFrecuenciaPago: z.number().int().positive().optional(),
+  idDeuda: z.number().int().positive().optional(),
   monto: z.number().finite(),
   descripcion: z.string().max(300).optional(),
   fecha: z.string().datetime().optional(),
   esIngreso: z.boolean().default(false),
-  metodoPago: z.string().max(100).optional(),
 });
 
 export async function GET() {
@@ -21,7 +23,8 @@ export async function GET() {
       where: { idUsuario: userId },
       include: {
         cuenta: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, nombre: true } },
+        categoria: { select: { id: true, descripcion: true } },
+        metodoPago: { select: { id: true, nombre: true } },
       },
       orderBy: { fecha: "desc" },
     });
@@ -59,11 +62,18 @@ export async function POST(req: Request) {
         idUsuario: userId,
         idCuenta: payload.idCuenta,
         idCategoria: payload.idCategoria,
+        idMetodoPago: payload.idMetodoPago,
+        idFrecuenciaPago: payload.idFrecuenciaPago,
+        idDeuda: payload.idDeuda,
         monto: payload.monto,
         descripcion: payload.descripcion,
         fecha: payload.fecha ? new Date(payload.fecha) : new Date(),
         esIngreso: payload.esIngreso,
-        metodoPago: payload.metodoPago,
+      },
+      include: {
+        cuenta: { select: { id: true, nombre: true } },
+        categoria: { select: { id: true, descripcion: true } },
+        metodoPago: { select: { id: true, nombre: true } },
       },
     });
 
