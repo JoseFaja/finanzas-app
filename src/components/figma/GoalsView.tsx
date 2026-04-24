@@ -30,11 +30,9 @@ interface GoalRecord {
   fechaLimite: string;
   idTipoObjetivo: number;
   idPrioridad: number | null;
-  idEstado: number | null;
   idCuenta: number | null;
   tipoObjetivo: CatalogItem;
   prioridad: CatalogItem | null;
-  estado: CatalogItem | null;
   cuenta: CatalogItem | null;
 }
 
@@ -48,12 +46,21 @@ interface Strategy {
   actions: string[];
 }
 
+const DEFAULT_GOAL_TYPES = [
+  "Ahorro",
+  "Fondo de emergencia",
+  "Inversión",
+  "Viaje",
+  "Educación",
+  "Compra importante",
+  "Otro",
+];
+
 export function GoalsView() {
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [goalTypes, setGoalTypes] = useState<CatalogItem[]>([]);
   const [priorities, setPriorities] = useState<CatalogItem[]>([]);
-  const [states, setStates] = useState<CatalogItem[]>([]);
   const [selectedGoalId, setSelectedGoalId] = useState<number | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -65,8 +72,30 @@ export function GoalsView() {
     fechaLimite: "",
     idPrioridad: "",
     idCuenta: "",
-    idEstado: "",
   });
+
+  const normalizeText = (value: string) => value.trim().toLowerCase();
+
+  const loadGoalTypes = async () => {
+    const existingTypes = await fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo");
+    const knownNames = new Set(existingTypes.map((item) => normalizeText(item.nombre)));
+    const missingTypes = DEFAULT_GOAL_TYPES.filter((name) => !knownNames.has(normalizeText(name)));
+
+    if (missingTypes.length > 0) {
+      await Promise.all(
+        missingTypes.map((nombre) =>
+          fetchJson<CatalogItem>("/api/catalogos/tipo-objetivo", {
+            method: "POST",
+            body: JSON.stringify({ nombre }),
+          }),
+        ),
+      );
+
+      return fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo");
+    }
+
+    return existingTypes;
+  };
 
   useEffect(() => {
     let active = true;
@@ -76,14 +105,12 @@ export function GoalsView() {
       setError(null);
 
       try {
-        const [goalsResponse, accountsResponse, goalTypesResponse, prioritiesResponse, statesResponse] =
-          await Promise.all([
-            fetchJson<GoalRecord[]>("/api/objetivos"),
-            fetchJson<AccountItem[]>("/api/cuentas"),
-            fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo"),
-            fetchJson<CatalogItem[]>("/api/catalogos/prioridad"),
-            fetchJson<CatalogItem[]>("/api/catalogos/estado"),
-          ]);
+        const [goalsResponse, accountsResponse, prioritiesResponse, goalTypesResponse] = await Promise.all([
+          fetchJson<GoalRecord[]>("/api/objetivos"),
+          fetchJson<AccountItem[]>("/api/cuentas"),
+          fetchJson<CatalogItem[]>("/api/catalogos/prioridad"),
+          loadGoalTypes(),
+        ]);
 
         if (!active) {
           return;
@@ -93,7 +120,6 @@ export function GoalsView() {
         setAccounts(accountsResponse);
         setGoalTypes(goalTypesResponse);
         setPriorities(prioritiesResponse);
-        setStates(statesResponse);
 
         if (!selectedGoalId && goalsResponse.length > 0) {
           setSelectedGoalId(goalsResponse[0].id);
@@ -104,7 +130,6 @@ export function GoalsView() {
           idTipoObjetivo: current.idTipoObjetivo || String(goalTypesResponse[0]?.id ?? ""),
           idPrioridad: current.idPrioridad || String(prioritiesResponse[0]?.id ?? ""),
           idCuenta: current.idCuenta || String(accountsResponse[0]?.id ?? ""),
-          idEstado: current.idEstado || String(statesResponse[0]?.id ?? ""),
         }));
       } catch (error) {
         if (!active) {
@@ -207,6 +232,18 @@ export function GoalsView() {
     ];
   };
 
+  const openCreateDialog = () => {
+    setNewGoal({
+      nombreObjetivo: "",
+      idTipoObjetivo: goalTypes[0] ? String(goalTypes[0].id) : "",
+      montoMeta: "0",
+      fechaLimite: "",
+      idPrioridad: priorities[0] ? String(priorities[0].id) : "",
+      idCuenta: accounts[0] ? String(accounts[0].id) : "",
+    });
+    setIsDialogOpen(true);
+  };
+
   const handleAddGoal = async () => {
     await fetchJson<GoalRecord>("/api/objetivos", {
       method: "POST",
@@ -216,7 +253,6 @@ export function GoalsView() {
         montoMeta: Number(newGoal.montoMeta),
         fechaLimite: new Date(newGoal.fechaLimite).toISOString(),
         idPrioridad: newGoal.idPrioridad ? Number(newGoal.idPrioridad) : undefined,
-        idEstado: newGoal.idEstado ? Number(newGoal.idEstado) : undefined,
         idCuenta: newGoal.idCuenta ? Number(newGoal.idCuenta) : undefined,
       }),
     });
@@ -228,7 +264,6 @@ export function GoalsView() {
       fechaLimite: "",
       idPrioridad: priorities[0] ? String(priorities[0].id) : "",
       idCuenta: accounts[0] ? String(accounts[0].id) : "",
-      idEstado: states[0] ? String(states[0].id) : "",
     });
     setIsDialogOpen(false);
     setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
@@ -243,7 +278,7 @@ export function GoalsView() {
           <h2 className="text-3xl">Objetivos Financieros</h2>
           <p className="text-muted-foreground">Define tus metas y obtén un plan personalizado</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button onClick={openCreateDialog}>
           <Target className="mr-2 h-4 w-4" />
           Nuevo objetivo
         </Button>
@@ -304,10 +339,6 @@ export function GoalsView() {
                         <div>
                           <p className="text-muted-foreground">Cuenta asociada</p>
                           <p>{goal.cuenta?.nombre || "Sin cuenta"}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Estado</p>
-                          <p>{goal.estado?.nombre || "Sin estado"}</p>
                         </div>
                       </div>
                     </div>
@@ -400,9 +431,7 @@ export function GoalsView() {
               <Input
                 id="goal-name"
                 value={newGoal.nombreObjetivo}
-                onChange={(e) =>
-                  setNewGoal({ ...newGoal, nombreObjetivo: e.target.value })
-                }
+                onChange={(e) => setNewGoal({ ...newGoal, nombreObjetivo: e.target.value })}
                 placeholder="Ej: Fondo de Emergencia"
               />
             </div>
@@ -471,24 +500,6 @@ export function GoalsView() {
                 </SelectTrigger>
                 <SelectContent>
                   {accounts.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>
-                      {item.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="goal-state">Estado</Label>
-              <Select
-                value={newGoal.idEstado}
-                onValueChange={(value) => setNewGoal({ ...newGoal, idEstado: value })}
-              >
-                <SelectTrigger id="goal-state">
-                  <SelectValue placeholder="Opcional" />
-                </SelectTrigger>
-                <SelectContent>
-                  {states.map((item) => (
                     <SelectItem key={item.id} value={String(item.id)}>
                       {item.nombre}
                     </SelectItem>

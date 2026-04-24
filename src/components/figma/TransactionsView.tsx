@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Plus, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Plus, ArrowUpRight, ArrowDownRight, Pencil, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { fetchJson } from "./figma-api";
 
@@ -29,23 +29,29 @@ interface TransactionRecord {
   fecha: string;
   cuenta: AccountItem;
   categoria: CatalogItem | null;
-  metodoPago: CatalogItem | null;
+}
+
+interface TransactionFormState {
+  descripcion: string;
+  amount: string;
+  type: "income" | "expense";
+  category: string;
+  account: string;
 }
 
 export function TransactionsView() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [categories, setCategories] = useState<CatalogItem[]>([]);
-  const [paymentMethods, setPaymentMethods] = useState<CatalogItem[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<TransactionRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [newTransaction, setNewTransaction] = useState({
-    description: "",
+  const [newTransaction, setNewTransaction] = useState<TransactionFormState>({
+    descripcion: "",
     amount: "0",
     type: "expense" as "income" | "expense",
     category: "",
-    method: "",
     account: "",
   });
 
@@ -57,13 +63,11 @@ export function TransactionsView() {
       setError(null);
 
       try {
-        const [transactionsResponse, accountsResponse, categoriesResponse, paymentMethodsResponse] =
-          await Promise.all([
-            fetchJson<TransactionRecord[]>("/api/transacciones"),
-            fetchJson<AccountItem[]>("/api/cuentas"),
-            fetchJson<CatalogItem[]>("/api/catalogos/categoria"),
-            fetchJson<CatalogItem[]>("/api/catalogos/metodo-pago"),
-          ]);
+        const [transactionsResponse, accountsResponse, categoriesResponse] = await Promise.all([
+          fetchJson<TransactionRecord[]>('/api/transacciones'),
+          fetchJson<AccountItem[]>('/api/cuentas'),
+          fetchJson<CatalogItem[]>('/api/catalogos/categoria'),
+        ]);
 
         if (!active) {
           return;
@@ -72,13 +76,11 @@ export function TransactionsView() {
         setTransactions(transactionsResponse);
         setAccounts(accountsResponse);
         setCategories(categoriesResponse);
-        setPaymentMethods(paymentMethodsResponse);
 
         setNewTransaction((current) => ({
           ...current,
           account: current.account || String(accountsResponse[0]?.id ?? ""),
           category: current.category || String(categoriesResponse[0]?.id ?? ""),
-          method: current.method || String(paymentMethodsResponse[0]?.id ?? ""),
         }));
       } catch (error) {
         if (!active) {
@@ -125,29 +127,71 @@ export function TransactionsView() {
     [transactions],
   );
 
-  const handleAddTransaction = async () => {
-    await fetchJson<TransactionRecord>("/api/transacciones", {
-      method: "POST",
-      body: JSON.stringify({
-        idCuenta: Number(newTransaction.account),
-        idCategoria: newTransaction.category ? Number(newTransaction.category) : undefined,
-        idMetodoPago: newTransaction.method ? Number(newTransaction.method) : undefined,
-        monto: Number(newTransaction.amount),
-        descripcion: newTransaction.description || undefined,
-        esIngreso: newTransaction.type === "income",
-      }),
-    });
-
+  const openCreateDialog = () => {
+    setEditingTransaction(null);
     setNewTransaction({
-      description: "",
+      descripcion: "",
       amount: "0",
       type: "expense",
       category: categories[0] ? String(categories[0].id) : "",
-      method: paymentMethods[0] ? String(paymentMethods[0].id) : "",
       account: accounts[0] ? String(accounts[0].id) : "",
     });
+    setIsDialogOpen(true);
+  };
+
+  const openEditDialog = (transaction: TransactionRecord) => {
+    setEditingTransaction(transaction);
+    setNewTransaction({
+      descripcion: transaction.descripcion || "",
+      amount: String(transaction.monto),
+      type: transaction.esIngreso ? "income" : "expense",
+      category: transaction.categoria ? String(transaction.categoria.id) : "",
+      account: String(transaction.cuenta.id),
+    });
+    setIsDialogOpen(true);
+  };
+
+  const refreshTransactions = async () => {
+    const refreshedTransactions = await fetchJson<TransactionRecord[]>("/api/transacciones");
+    setTransactions(refreshedTransactions);
+  };
+
+  const handleSaveTransaction = async () => {
+    const payload = {
+      idCuenta: Number(newTransaction.account),
+      idCategoria: newTransaction.category ? Number(newTransaction.category) : undefined,
+      monto: Number(newTransaction.amount),
+      descripcion: newTransaction.descripcion || undefined,
+      esIngreso: newTransaction.type === "income",
+    };
+
+    if (editingTransaction) {
+      await fetchJson<TransactionRecord>(`/api/transacciones/${editingTransaction.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await fetchJson<TransactionRecord>("/api/transacciones", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
+
+    setNewTransaction({
+      descripcion: "",
+      amount: "0",
+      type: "expense",
+      category: categories[0] ? String(categories[0].id) : "",
+      account: accounts[0] ? String(accounts[0].id) : "",
+    });
+    setEditingTransaction(null);
     setIsDialogOpen(false);
-    setTransactions(await fetchJson<TransactionRecord[]>("/api/transacciones"));
+    await refreshTransactions();
+  };
+
+  const handleDeleteTransaction = async (id: number) => {
+    await fetchJson(`/api/transacciones/${id}`, { method: "DELETE" });
+    await refreshTransactions();
   };
 
   return (
@@ -157,7 +201,7 @@ export function TransactionsView() {
           <h2 className="text-3xl">Transacciones</h2>
           <p className="text-muted-foreground">Registra tus ingresos y gastos</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
           Nueva transacción
         </Button>
@@ -214,18 +258,27 @@ export function TransactionsView() {
                     <p>{transaction.descripcion || "Transacción"}</p>
                     <p className="text-sm text-muted-foreground">
                       {transaction.categoria?.descripcion || "Sin categoría"} • {transaction.cuenta?.nombre}
-                      {transaction.metodoPago?.nombre ? ` • ${transaction.metodoPago.nombre}` : ""}
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className={transaction.esIngreso ? "text-green-600" : "text-red-600"}>
-                    {transaction.esIngreso ? "+" : "-"}
-                    {formatCurrency(Number(transaction.monto))}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(transaction.fecha).toLocaleDateString("es-CO")}
-                  </p>
+                <div className="flex items-end gap-4">
+                  <div className="text-right">
+                    <p className={transaction.esIngreso ? "text-green-600" : "text-red-600"}>
+                      {transaction.esIngreso ? "+" : "-"}
+                      {formatCurrency(Number(transaction.monto))}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(transaction.fecha).toLocaleDateString("es-CO")}
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEditDialog(transaction)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void handleDeleteTransaction(transaction.id)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -236,7 +289,7 @@ export function TransactionsView() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Agregar transacción</DialogTitle>
+            <DialogTitle>{editingTransaction ? "Editar transacción" : "Agregar transacción"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
@@ -260,9 +313,9 @@ export function TransactionsView() {
               <Label htmlFor="transaction-description">Descripción</Label>
               <Input
                 id="transaction-description"
-                value={newTransaction.description}
+                value={newTransaction.descripcion}
                 onChange={(e) =>
-                  setNewTransaction({ ...newTransaction, description: e.target.value })
+                  setNewTransaction({ ...newTransaction, descripcion: e.target.value })
                 }
                 placeholder="Ej: Salario mensual"
               />
@@ -314,26 +367,8 @@ export function TransactionsView() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="transaction-method">Método de pago</Label>
-              <Select
-                value={newTransaction.method}
-                onValueChange={(value) => setNewTransaction({ ...newTransaction, method: value })}
-              >
-                <SelectTrigger id="transaction-method">
-                  <SelectValue placeholder="Selecciona un método" />
-                </SelectTrigger>
-                <SelectContent>
-                  {paymentMethods.map((method) => (
-                    <SelectItem key={method.id} value={String(method.id)}>
-                      {method.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={() => void handleAddTransaction()} className="w-full">
-              Agregar transacción
+            <Button onClick={() => void handleSaveTransaction()} className="w-full">
+              {editingTransaction ? "Guardar cambios" : "Agregar transacción"}
             </Button>
           </div>
         </DialogContent>

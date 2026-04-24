@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Plus, Trash2, CreditCard } from "lucide-react";
+import { Plus, Trash2, CreditCard, Pencil } from "lucide-react";
 import { Progress } from "./ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { fetchJson } from "./figma-api";
@@ -27,15 +27,26 @@ interface DebtRecord {
   frecuenciaPago: CatalogItem | null;
 }
 
+interface DebtFormState {
+  typeName: string;
+  montoTotal: string;
+  saldoPendiente: string;
+  tasaIntereses: string;
+  cuotas: string;
+  cuotasPagadas: string;
+  idFrecuenciaPago: string;
+}
+
 export function DebtsView() {
   const [debts, setDebts] = useState<DebtRecord[]>([]);
   const [debtTypes, setDebtTypes] = useState<CatalogItem[]>([]);
   const [paymentFrequencies, setPaymentFrequencies] = useState<CatalogItem[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingDebt, setEditingDebt] = useState<DebtRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [newDebt, setNewDebt] = useState({
-    idTipoDeuda: "",
+  const [newDebt, setNewDebt] = useState<DebtFormState>({
+    typeName: "",
     montoTotal: "0",
     saldoPendiente: "0",
     tasaIntereses: "0",
@@ -67,7 +78,7 @@ export function DebtsView() {
         setPaymentFrequencies(paymentFrequenciesResponse);
         setNewDebt((current) => ({
           ...current,
-          idTipoDeuda: current.idTipoDeuda || String(debtTypesResponse[0]?.id ?? ""),
+          typeName: current.typeName || debtTypesResponse[0]?.nombre || "",
           idFrecuenciaPago: current.idFrecuenciaPago || String(paymentFrequenciesResponse[0]?.id ?? ""),
         }));
       } catch (error) {
@@ -115,22 +126,39 @@ export function DebtsView() {
     [debts],
   );
 
-  const handleAddDebt = async () => {
-    await fetchJson<DebtRecord>("/api/deudas", {
+  const normalizeText = (value: string) => value.trim().toLowerCase();
+
+  const resolveDebtTypeId = async (typeName: string) => {
+    const cleanName = typeName.trim();
+
+    if (!cleanName) {
+      throw new Error("Debes escribir el tipo de deuda");
+    }
+
+    const existingType = debtTypes.find((item) => normalizeText(item.nombre) === normalizeText(cleanName));
+
+    if (existingType) {
+      return existingType.id;
+    }
+
+    const createdType = await fetchJson<CatalogItem>("/api/catalogos/tipo-deuda", {
       method: "POST",
-      body: JSON.stringify({
-        idTipoDeuda: Number(newDebt.idTipoDeuda),
-        montoTotal: Number(newDebt.montoTotal),
-        saldoPendiente: Number(newDebt.saldoPendiente),
-        tasaIntereses: Number(newDebt.tasaIntereses),
-        cuotas: Number(newDebt.cuotas),
-        cuotasPagadas: Number(newDebt.cuotasPagadas),
-        idFrecuenciaPago: newDebt.idFrecuenciaPago ? Number(newDebt.idFrecuenciaPago) : undefined,
-      }),
+      body: JSON.stringify({ nombre: cleanName }),
     });
 
+    setDebtTypes((current) => [...current, createdType]);
+    return createdType.id;
+  };
+
+  const refreshDebts = async () => {
+    const refreshedDebts = await fetchJson<DebtRecord[]>("/api/deudas");
+    setDebts(refreshedDebts);
+  };
+
+  const openCreateDialog = () => {
+    setEditingDebt(null);
     setNewDebt({
-      idTipoDeuda: debtTypes[0] ? String(debtTypes[0].id) : "",
+      typeName: debtTypes[0]?.nombre || "",
       montoTotal: "0",
       saldoPendiente: "0",
       tasaIntereses: "0",
@@ -138,13 +166,64 @@ export function DebtsView() {
       cuotasPagadas: "0",
       idFrecuenciaPago: paymentFrequencies[0] ? String(paymentFrequencies[0].id) : "",
     });
+    setIsDialogOpen(true);
+  };
+
+  const openEditDialog = (debt: DebtRecord) => {
+    setEditingDebt(debt);
+    setNewDebt({
+      typeName: debt.tipoDeuda?.nombre || "",
+      montoTotal: String(debt.montoTotal),
+      saldoPendiente: String(debt.saldoPendiente),
+      tasaIntereses: String(debt.tasaIntereses),
+      cuotas: String(debt.cuotas),
+      cuotasPagadas: String(debt.cuotasPagadas),
+      idFrecuenciaPago: debt.frecuenciaPago ? String(debt.frecuenciaPago.id) : "",
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleSaveDebt = async () => {
+    const idTipoDeuda = await resolveDebtTypeId(newDebt.typeName);
+    const payload = {
+      idTipoDeuda,
+      montoTotal: Number(newDebt.montoTotal),
+      saldoPendiente: Number(newDebt.saldoPendiente),
+      tasaIntereses: Number(newDebt.tasaIntereses),
+      cuotas: Number(newDebt.cuotas),
+      cuotasPagadas: Number(newDebt.cuotasPagadas),
+      idFrecuenciaPago: newDebt.idFrecuenciaPago ? Number(newDebt.idFrecuenciaPago) : undefined,
+    };
+
+    if (editingDebt) {
+      await fetchJson<DebtRecord>(`/api/deudas/${editingDebt.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await fetchJson<DebtRecord>("/api/deudas", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
+
+    setNewDebt({
+      typeName: debtTypes[0]?.nombre || "",
+      montoTotal: "0",
+      saldoPendiente: "0",
+      tasaIntereses: "0",
+      cuotas: "12",
+      cuotasPagadas: "0",
+      idFrecuenciaPago: paymentFrequencies[0] ? String(paymentFrequencies[0].id) : "",
+    });
+    setEditingDebt(null);
     setIsDialogOpen(false);
-    setDebts(await fetchJson<DebtRecord[]>("/api/deudas"));
+    await refreshDebts();
   };
 
   const handleDeleteDebt = async (id: number) => {
     await fetchJson(`/api/deudas/${id}`, { method: "DELETE" });
-    setDebts(await fetchJson<DebtRecord[]>("/api/deudas"));
+    await refreshDebts();
   };
 
   return (
@@ -154,7 +233,7 @@ export function DebtsView() {
           <h2 className="text-3xl">Deudas</h2>
           <p className="text-muted-foreground">Administra tus préstamos y deudas</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
           Nueva deuda
         </Button>
@@ -184,7 +263,7 @@ export function DebtsView() {
 
       <div className="space-y-4">
         {debts.map((debt) => {
-          const progress = (debt.cuotasPagadas / debt.cuotas) * 100;
+          const progress = debt.cuotas > 0 ? (debt.cuotasPagadas / debt.cuotas) * 100 : 0;
           const remaining = Number(debt.saldoPendiente);
           const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 1);
           const estimatedMonthlyPayment = remaining / remainingInstallments;
@@ -197,9 +276,14 @@ export function DebtsView() {
                     <CreditCard className="h-5 w-5" />
                     <CardTitle>{debt.tipoDeuda?.nombre}</CardTitle>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => void handleDeleteDebt(debt.id)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEditDialog(debt)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void handleDeleteDebt(debt.id)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -245,26 +329,17 @@ export function DebtsView() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Agregar nueva deuda</DialogTitle>
+            <DialogTitle>{editingDebt ? "Editar deuda" : "Agregar nueva deuda"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="debt-type">Tipo de deuda</Label>
-              <Select
-                value={newDebt.idTipoDeuda}
-                onValueChange={(value) => setNewDebt({ ...newDebt, idTipoDeuda: value })}
-              >
-                <SelectTrigger id="debt-type">
-                  <SelectValue placeholder="Selecciona un tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {debtTypes.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>
-                      {item.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                id="debt-type"
+                value={newDebt.typeName}
+                onChange={(e) => setNewDebt({ ...newDebt, typeName: e.target.value })}
+                placeholder="Escribe el tipo de deuda"
+              />
             </div>
             <div>
               <Label htmlFor="debt-frequency">Frecuencia de pago</Label>
@@ -290,9 +365,7 @@ export function DebtsView() {
                 id="debt-total"
                 type="number"
                 value={newDebt.montoTotal}
-                onChange={(e) =>
-                  setNewDebt({ ...newDebt, montoTotal: e.target.value })
-                }
+                onChange={(e) => setNewDebt({ ...newDebt, montoTotal: e.target.value })}
               />
             </div>
             <div>
@@ -301,9 +374,7 @@ export function DebtsView() {
                 id="debt-pending"
                 type="number"
                 value={newDebt.saldoPendiente}
-                onChange={(e) =>
-                  setNewDebt({ ...newDebt, saldoPendiente: e.target.value })
-                }
+                onChange={(e) => setNewDebt({ ...newDebt, saldoPendiente: e.target.value })}
               />
             </div>
             <div>
@@ -313,9 +384,7 @@ export function DebtsView() {
                 type="number"
                 step="0.1"
                 value={newDebt.tasaIntereses}
-                onChange={(e) =>
-                  setNewDebt({ ...newDebt, tasaIntereses: e.target.value })
-                }
+                onChange={(e) => setNewDebt({ ...newDebt, tasaIntereses: e.target.value })}
               />
             </div>
             <div>
@@ -333,13 +402,11 @@ export function DebtsView() {
                 id="debt-paid-installments"
                 type="number"
                 value={newDebt.cuotasPagadas}
-                onChange={(e) =>
-                  setNewDebt({ ...newDebt, cuotasPagadas: e.target.value })
-                }
+                onChange={(e) => setNewDebt({ ...newDebt, cuotasPagadas: e.target.value })}
               />
             </div>
-            <Button onClick={() => void handleAddDebt()} className="w-full">
-              Agregar deuda
+            <Button onClick={() => void handleSaveDebt()} className="w-full">
+              {editingDebt ? "Guardar cambios" : "Agregar deuda"}
             </Button>
           </div>
         </DialogContent>

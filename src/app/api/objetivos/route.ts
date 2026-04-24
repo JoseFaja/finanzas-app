@@ -44,6 +44,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = createObjetivoSchema.parse(body);
 
+    const activeState =
+      (await prisma.estado.findFirst({
+        where: { nombre: { equals: "Activo", mode: "insensitive" } },
+        select: { id: true },
+      })) ??
+      (await prisma.estado.findFirst({
+        orderBy: { id: "asc" },
+        select: { id: true },
+      }));
+
     if (payload.idCuenta) {
       const cuenta = await prisma.cuenta.findFirst({
         where: { id: payload.idCuenta, idUsuario: userId },
@@ -66,7 +76,7 @@ export async function POST(req: Request) {
         montoMeta: payload.montoMeta,
         fechaLimite: new Date(payload.fechaLimite),
         idPrioridad: payload.idPrioridad,
-        idEstado: payload.idEstado,
+        idEstado: activeState?.id ?? payload.idEstado,
         idCuenta: payload.idCuenta,
       },
       include: {

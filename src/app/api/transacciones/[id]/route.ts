@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
@@ -38,7 +39,9 @@ export async function PUT(
 
     const existing = await prisma.transaccion.findFirst({
       where: { id: transaccionId, idUsuario: userId },
-      select: { id: true },
+      include: {
+        cuenta: { select: { id: true, saldoActual: true } },
+      },
     });
 
     if (!existing) {
@@ -48,49 +51,95 @@ export async function PUT(
       );
     }
 
-    if (payload.idCuenta) {
-      const cuenta = await prisma.cuenta.findFirst({
-        where: { id: payload.idCuenta, idUsuario: userId },
-        select: { id: true },
-      });
+    const nextCuentaId = payload.idCuenta ?? existing.idCuenta;
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextAmount = payload.monto !== undefined
+        ? new Prisma.Decimal(payload.monto)
+        : new Prisma.Decimal(existing.monto.toString());
+      const nextIsIncome = payload.esIngreso ?? existing.esIngreso;
+      const oldAmount = new Prisma.Decimal(existing.monto.toString());
+      const oldEffect = existing.esIngreso ? oldAmount : oldAmount.neg();
+      const newEffect = nextIsIncome ? nextAmount : nextAmount.neg();
 
-      if (!cuenta) {
-        return NextResponse.json(
-          { error: "Cuenta inválida para el usuario" },
-          { status: 400 },
-        );
+      if (existing.idCuenta === nextCuentaId) {
+        const currentAccount = await tx.cuenta.findFirst({
+          where: { id: existing.idCuenta, idUsuario: userId },
+          select: { id: true, saldoActual: true },
+        });
+
+        if (!currentAccount) {
+          throw new Error("INVALID_ACCOUNT");
+        }
+
+        const currentBalance = new Prisma.Decimal(currentAccount.saldoActual.toString());
+        await tx.cuenta.update({
+          where: { id: currentAccount.id },
+          data: { saldoActual: currentBalance.sub(oldEffect).add(newEffect) },
+        });
+      } else {
+        const currentAccount = await tx.cuenta.findFirst({
+          where: { id: existing.idCuenta, idUsuario: userId },
+          select: { id: true, saldoActual: true },
+        });
+        const nextAccount = await tx.cuenta.findFirst({
+          where: { id: nextCuentaId, idUsuario: userId },
+          select: { id: true, saldoActual: true },
+        });
+
+        if (!currentAccount || !nextAccount) {
+          throw new Error("INVALID_ACCOUNT");
+        }
+
+        const currentBalance = new Prisma.Decimal(currentAccount.saldoActual.toString());
+        await tx.cuenta.update({
+          where: { id: currentAccount.id },
+          data: { saldoActual: currentBalance.sub(oldEffect) },
+        });
+
+        const targetBalance = new Prisma.Decimal(nextAccount.saldoActual.toString());
+        await tx.cuenta.update({
+          where: { id: nextCuentaId },
+          data: { saldoActual: targetBalance.add(newEffect) },
+        });
       }
-    }
 
-    const updated = await prisma.transaccion.update({
-      where: { id: transaccionId },
-      data: {
-        idCuenta: payload.idCuenta,
-        idCategoria: payload.idCategoria ?? undefined,
-        monto: payload.monto,
-        descripcion:
-          payload.descripcion !== undefined ? payload.descripcion : undefined,
-        fecha: payload.fecha ? new Date(payload.fecha) : undefined,
-        esIngreso: payload.esIngreso,
-        idMetodoPago:
-          payload.idMetodoPago !== undefined ? payload.idMetodoPago : undefined,
-        idFrecuenciaPago:
-          payload.idFrecuenciaPago !== undefined
-            ? payload.idFrecuenciaPago
-            : undefined,
-        idDeuda: payload.idDeuda !== undefined ? payload.idDeuda : undefined,
-      },
-      include: {
-        cuenta: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, descripcion: true } },
-        metodoPago: { select: { id: true, nombre: true } },
-      },
+      return tx.transaccion.update({
+        where: { id: transaccionId },
+        data: {
+          idCuenta: nextCuentaId,
+          idCategoria: payload.idCategoria ?? undefined,
+          monto: nextAmount,
+          descripcion:
+            payload.descripcion !== undefined ? payload.descripcion : undefined,
+          fecha: payload.fecha ? new Date(payload.fecha) : undefined,
+          esIngreso: nextIsIncome,
+          idMetodoPago:
+            payload.idMetodoPago !== undefined ? payload.idMetodoPago : undefined,
+          idFrecuenciaPago:
+            payload.idFrecuenciaPago !== undefined
+              ? payload.idFrecuenciaPago
+              : undefined,
+          idDeuda: payload.idDeuda !== undefined ? payload.idDeuda : undefined,
+        },
+        include: {
+          cuenta: { select: { id: true, nombre: true } },
+          categoria: { select: { id: true, descripcion: true } },
+          metodoPago: { select: { id: true, nombre: true } },
+        },
+      });
     });
 
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    if (error instanceof Error && error.message === "INVALID_ACCOUNT") {
+      return NextResponse.json(
+        { error: "Cuenta inválida para el usuario" },
+        { status: 400 },
+      );
     }
 
     if (error instanceof Error && error.message === "INVALID_ID") {
@@ -119,7 +168,9 @@ export async function DELETE(
 
     const existing = await prisma.transaccion.findFirst({
       where: { id: transaccionId, idUsuario: userId },
-      select: { id: true },
+      include: {
+        cuenta: { select: { id: true, saldoActual: true } },
+      },
     });
 
     if (!existing) {
@@ -129,7 +180,18 @@ export async function DELETE(
       );
     }
 
-    await prisma.transaccion.delete({ where: { id: transaccionId } });
+    await prisma.$transaction(async (tx) => {
+      const amount = new Prisma.Decimal(existing.monto.toString());
+      const effect = existing.esIngreso ? amount : amount.neg();
+      const balance = new Prisma.Decimal(existing.cuenta.saldoActual.toString());
+
+      await tx.cuenta.update({
+        where: { id: existing.cuenta.id },
+        data: { saldoActual: balance.sub(effect) },
+      });
+
+      await tx.transaccion.delete({ where: { id: transaccionId } });
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

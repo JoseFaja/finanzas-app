@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
@@ -45,42 +46,57 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = createTransaccionSchema.parse(body);
 
-    const cuenta = await prisma.cuenta.findFirst({
-      where: { id: payload.idCuenta, idUsuario: userId },
-      select: { id: true },
-    });
+    const transaccion = await prisma.$transaction(async (tx) => {
+      const cuenta = await tx.cuenta.findFirst({
+        where: { id: payload.idCuenta, idUsuario: userId },
+        select: { id: true, saldoActual: true },
+      });
 
-    if (!cuenta) {
-      return NextResponse.json(
-        { error: "Cuenta inválida para el usuario" },
-        { status: 400 },
-      );
-    }
+      if (!cuenta) {
+        throw new Error("INVALID_ACCOUNT");
+      }
 
-    const transaccion = await prisma.transaccion.create({
-      data: {
-        idUsuario: userId,
-        idCuenta: payload.idCuenta,
-        idCategoria: payload.idCategoria,
-        idMetodoPago: payload.idMetodoPago,
-        idFrecuenciaPago: payload.idFrecuenciaPago,
-        idDeuda: payload.idDeuda,
-        monto: payload.monto,
-        descripcion: payload.descripcion,
-        fecha: payload.fecha ? new Date(payload.fecha) : new Date(),
-        esIngreso: payload.esIngreso,
-      },
-      include: {
-        cuenta: { select: { id: true, nombre: true } },
-        categoria: { select: { id: true, descripcion: true } },
-        metodoPago: { select: { id: true, nombre: true } },
-      },
+      const monto = new Prisma.Decimal(payload.monto);
+      const signedAmount = payload.esIngreso ? monto : monto.neg();
+      const currentBalance = new Prisma.Decimal(cuenta.saldoActual.toString());
+
+      await tx.cuenta.update({
+        where: { id: cuenta.id },
+        data: { saldoActual: currentBalance.add(signedAmount) },
+      });
+
+      return tx.transaccion.create({
+        data: {
+          idUsuario: userId,
+          idCuenta: payload.idCuenta,
+          idCategoria: payload.idCategoria,
+          idMetodoPago: payload.idMetodoPago,
+          idFrecuenciaPago: payload.idFrecuenciaPago,
+          idDeuda: payload.idDeuda,
+          monto,
+          descripcion: payload.descripcion,
+          fecha: payload.fecha ? new Date(payload.fecha) : new Date(),
+          esIngreso: payload.esIngreso,
+        },
+        include: {
+          cuenta: { select: { id: true, nombre: true } },
+          categoria: { select: { id: true, descripcion: true } },
+          metodoPago: { select: { id: true, nombre: true } },
+        },
+      });
     });
 
     return NextResponse.json(transaccion, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    if (error instanceof Error && error.message === "INVALID_ACCOUNT") {
+      return NextResponse.json(
+        { error: "Cuenta inválida para el usuario" },
+        { status: 400 },
+      );
     }
 
     if (error instanceof z.ZodError) {
