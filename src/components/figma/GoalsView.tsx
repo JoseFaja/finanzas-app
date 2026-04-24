@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Target, TrendingUp, Zap, Clock } from "lucide-react";
+import { Target, TrendingUp, Zap, Clock, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -63,6 +63,7 @@ export function GoalsView() {
   const [priorities, setPriorities] = useState<CatalogItem[]>([]);
   const [selectedGoalId, setSelectedGoalId] = useState<number | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<GoalRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newGoal, setNewGoal] = useState({
@@ -233,6 +234,7 @@ export function GoalsView() {
   };
 
   const openCreateDialog = () => {
+    setEditingGoal(null);
     setNewGoal({
       nombreObjetivo: "",
       idTipoObjetivo: goalTypes[0] ? String(goalTypes[0].id) : "",
@@ -244,18 +246,40 @@ export function GoalsView() {
     setIsDialogOpen(true);
   };
 
-  const handleAddGoal = async () => {
-    await fetchJson<GoalRecord>("/api/objetivos", {
-      method: "POST",
-      body: JSON.stringify({
-        nombreObjetivo: newGoal.nombreObjetivo,
-        idTipoObjetivo: Number(newGoal.idTipoObjetivo),
-        montoMeta: Number(newGoal.montoMeta),
-        fechaLimite: new Date(newGoal.fechaLimite).toISOString(),
-        idPrioridad: newGoal.idPrioridad ? Number(newGoal.idPrioridad) : undefined,
-        idCuenta: newGoal.idCuenta ? Number(newGoal.idCuenta) : undefined,
-      }),
+  const openEditDialog = (goal: GoalRecord) => {
+    setEditingGoal(goal);
+    setNewGoal({
+      nombreObjetivo: goal.nombreObjetivo,
+      idTipoObjetivo: String(goal.idTipoObjetivo),
+      montoMeta: String(goal.montoMeta),
+      fechaLimite: goal.fechaLimite.slice(0, 10),
+      idPrioridad: goal.idPrioridad ? String(goal.idPrioridad) : "",
+      idCuenta: goal.idCuenta ? String(goal.idCuenta) : "",
     });
+    setIsDialogOpen(true);
+  };
+
+  const handleAddGoal = async () => {
+    const payload = {
+      nombreObjetivo: newGoal.nombreObjetivo,
+      idTipoObjetivo: Number(newGoal.idTipoObjetivo),
+      montoMeta: Number(newGoal.montoMeta),
+      fechaLimite: new Date(newGoal.fechaLimite).toISOString(),
+      idPrioridad: newGoal.idPrioridad ? Number(newGoal.idPrioridad) : undefined,
+      idCuenta: newGoal.idCuenta ? Number(newGoal.idCuenta) : undefined,
+    };
+
+    if (editingGoal) {
+      await fetchJson<GoalRecord>(`/api/objetivos/${editingGoal.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await fetchJson<GoalRecord>("/api/objetivos", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    }
 
     setNewGoal({
       nombreObjetivo: "",
@@ -265,7 +289,13 @@ export function GoalsView() {
       idPrioridad: priorities[0] ? String(priorities[0].id) : "",
       idCuenta: accounts[0] ? String(accounts[0].id) : "",
     });
+    setEditingGoal(null);
     setIsDialogOpen(false);
+    setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
+  };
+
+  const handleDeleteGoal = async (goalId: number) => {
+    await fetchJson(`/api/objetivos/${goalId}`, { method: "DELETE" });
     setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
   };
 
@@ -314,10 +344,34 @@ export function GoalsView() {
                   onClick={() => setSelectedGoalId(goal.id)}
                 >
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Target className="h-5 w-5" />
-                      {goal.nombreObjetivo}
-                    </CardTitle>
+                    <div className="flex items-start justify-between gap-3">
+                      <CardTitle className="flex items-center gap-2">
+                        <Target className="h-5 w-5" />
+                        {goal.nombreObjetivo}
+                      </CardTitle>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditDialog(goal);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteGoal(goal.id);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
@@ -423,7 +477,7 @@ export function GoalsView() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Crear objetivo financiero</DialogTitle>
+            <DialogTitle>{editingGoal ? "Editar objetivo financiero" : "Crear objetivo financiero"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
@@ -508,7 +562,7 @@ export function GoalsView() {
               </Select>
             </div>
             <Button onClick={() => void handleAddGoal()} className="w-full">
-              Crear objetivo
+              {editingGoal ? "Guardar cambios" : "Crear objetivo"}
             </Button>
           </div>
         </DialogContent>
