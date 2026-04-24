@@ -188,7 +188,7 @@ export function ScoreView() {
               <XAxis dataKey="month" />
               <YAxis tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
               <Tooltip
-                formatter={(value: number) => formatCurrency(value)}
+                formatter={(value) => formatCurrency(Number(value ?? 0))}
                 labelStyle={{ color: "hsl(var(--foreground))" }}
               />
               <Legend />
