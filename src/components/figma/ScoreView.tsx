@@ -22,6 +22,7 @@ interface ScoreFlowPoint {
   month: string;
   ingresos: number;
   gastos: number;
+  pagosDeuda: number;
   ahorros: number;
 }
 
@@ -30,6 +31,12 @@ interface ScoreResponse {
   historial: ScoreHistoryPoint[];
   factores: ScoreFactor[];
   flujo: ScoreFlowPoint[];
+  consejos: string[];
+  alertas: string[];
+  tendencia: {
+    variacion: number;
+    descripcion: string;
+  };
 }
 
 export function ScoreView() {
@@ -78,7 +85,10 @@ export function ScoreView() {
 
   const monthlyScoreData = scoreData?.historial ?? [];
   const financialMetrics = scoreData?.flujo ?? [];
-  const scoreFactors = scoreData?.factores ?? [];
+  const scoreFactors = scoreData?.factores;
+  const recommendations = scoreData?.consejos ?? [];
+  const alerts = scoreData?.alertas ?? [];
+  const trend = scoreData?.tendencia;
 
   const getScoreRating = (score: number) => {
     if (score >= 750) return { label: "Excelente", color: "bg-green-600" };
@@ -100,7 +110,7 @@ export function ScoreView() {
 
   const factorRows = useMemo(
     () =>
-      scoreFactors.map((factor) => ({
+      (scoreFactors ?? []).map((factor) => ({
         ...factor,
         impact:
           factor.valor >= 70 ? ("positive" as const) : factor.valor >= 50 ? ("neutral" as const) : ("negative" as const),
@@ -177,6 +187,44 @@ export function ScoreView() {
         </Card>
       </div>
 
+      {trend ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Tendencia reciente</CardTitle>
+            <CardDescription>{trend.descripcion}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-3">
+            <Badge className={trend.variacion >= 0 ? "bg-green-600" : "bg-red-600"}>
+              {trend.variacion >= 0 ? "+" : ""}{trend.variacion} puntos
+            </Badge>
+            <span className="text-sm text-muted-foreground">
+              Comparado contra el mes anterior, el comportamiento va {trend.variacion >= 0 ? "mejor" : "peor"}.
+            </span>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {alerts.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Alertas</CardTitle>
+            <CardDescription>Señales rápidas del estado actual</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {alerts.map((alert) => (
+                <li key={alert} className="flex items-start gap-2">
+                  <Badge variant="outline" className="mt-0.5">
+                    !
+                  </Badge>
+                  <span>{alert}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Factores del Score</CardTitle>
@@ -213,10 +261,31 @@ export function ScoreView() {
         </CardContent>
       </Card>
 
+      {recommendations.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Consejos para subir el score</CardTitle>
+            <CardDescription>Acciones concretas para mejorar tu salud financiera</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {recommendations.map((recommendation) => (
+                <li key={recommendation} className="flex items-start gap-2">
+                  <Badge variant="outline" className="mt-0.5">
+                    +
+                  </Badge>
+                  <span>{recommendation}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Flujo de Efectivo Mensual</CardTitle>
-          <CardDescription>Ingresos, gastos y ahorros</CardDescription>
+          <CardDescription>Ingresos, gastos, pagos de deuda y ahorros</CardDescription>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
