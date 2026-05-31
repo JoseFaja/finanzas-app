@@ -179,10 +179,12 @@ export function GoalsView() {
       try {
         let response: GoalPlanResponse;
 
-        if (persist) {
+        // Use POST if we have refinement answers OR if we need to persist
+        const hasAnswers = answers.length > 0;
+        if (persist || hasAnswers) {
           response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
             method: "POST",
-            body: JSON.stringify({ goalId, selectedPlanKey, answers }),
+            body: JSON.stringify({ goalId, selectedPlanKey, answers, persist }),
           });
         } else {
           response = await fetchJson<GoalPlanResponse>(`/api/objetivos/recomendaciones?goalId=${goalId}`);

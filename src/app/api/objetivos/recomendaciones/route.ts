@@ -22,6 +22,7 @@ const recommendationSchema = z.object({
       }),
     )
     .default([]),
+  persist: z.boolean().default(true),
 });
 
 interface SavedPlanSummary {
@@ -247,7 +248,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });
     }
 
-    const planGuardado = await persistRecommendationPlan(userId, context, payload.selectedPlanKey);
+    // Only persist if explicitly requested; allow preview with refinement answers
+    let planGuardado: SavedPlanSummary | null = null;
+    if (payload.persist) {
+      planGuardado = await persistRecommendationPlan(userId, context, payload.selectedPlanKey);
+    }
+
     const historialGuardado = await getSavedPlans(userId);
 
     return NextResponse.json({
@@ -255,7 +261,7 @@ export async function POST(req: Request) {
       planGuardado,
       historialGuardado,
       planAnterior: historialGuardado[1] ?? null,
-      selectedPlanKey: planGuardado.planElegidoKey,
+      selectedPlanKey: planGuardado?.planElegidoKey ?? payload.selectedPlanKey,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
