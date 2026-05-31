@@ -239,7 +239,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = recommendationSchema.parse(body);
 
-    const context = await buildGoalRecommendationContext(userId, payload.goalId, payload.answers);
+    // Normalize answers: ensure `answer` is always a string for internal types
+    const normalizedAnswers = payload.answers.map((a) => ({ id: a.id, question: a.question, answer: a.answer ?? "" }));
+    const context = await buildGoalRecommendationContext(userId, payload.goalId, normalizedAnswers as any);
 
     if (!context) {
       return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });
