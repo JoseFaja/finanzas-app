@@ -17,7 +17,8 @@ const recommendationSchema = z.object({
       z.object({
         id: z.string().min(1),
         question: z.string().min(1),
-        answer: z.string().min(1),
+        // Permitimos respuestas vacías para no bloquear selecciones sin respuestas
+        answer: z.string().optional(),
       }),
     )
     .default([]),
