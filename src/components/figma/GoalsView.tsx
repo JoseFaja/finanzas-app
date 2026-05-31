@@ -69,7 +69,6 @@ interface SavedPlanSummary {
   nivelRiesgo: string;
   planElegido: string;
   planElegidoKey: "high" | "medium" | "low";
-  aiAjustado?: boolean;
 }
 
 interface GoalPlanResponse {
@@ -622,10 +621,7 @@ export function GoalsView() {
                               <p className="text-sm text-muted-foreground">Plan base</p>
                               <p className="capitalize">{planData.planGuardado.planElegido}</p>
                             </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">Ajuste IA</p>
-                              <p>{planData.planGuardado.aiAjustado ? "Sí" : "No"}</p>
-                            </div>
+                            {/* aiAjustado removed from UI - no longer displayed */}
                           </div>
                         </CardContent>
                       </Card>
@@ -644,7 +640,7 @@ export function GoalsView() {
                                 <div>
                                   <p className="font-medium">{formatDate(plan.fechaGeneracion)}</p>
                                       <p className="text-sm text-muted-foreground">
-                                        Riesgo {plan.nivelRiesgo} · base {plan.planElegido} {plan.aiAjustado ? "· Ajustado por IA" : ""}
+                                        Riesgo {plan.nivelRiesgo} · base {plan.planElegido}
                                       </p>
                                 </div>
                                 <div className="grid gap-3 text-sm md:grid-cols-3 md:text-right">
