@@ -217,6 +217,7 @@ model PlanFinanciero {
   ingresoMensualEstimado Decimal @db.Decimal(14, 2)
   gastoMensualEstimado   Decimal @db.Decimal(14, 2)
   ahorroSugerido         Decimal @db.Decimal(14, 2)
+  aiAjustado             Boolean  @default(false)
 
   idNivelRiesgo Int?
   nivelRiesgo   NivelRiesgo? @relation(fields: [idNivelRiesgo], references: [id])

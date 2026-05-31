@@ -32,6 +32,7 @@ interface SavedPlanSummary {
   nivelRiesgo: string;
   planElegido: string;
   planElegidoKey: "high" | "medium" | "low";
+  aiAjustado?: boolean;
 }
 
 function toNumber(value: unknown) {
@@ -158,6 +159,7 @@ async function getSavedPlans(userId: number): Promise<SavedPlanSummary[]> {
     nivelRiesgo: plan.nivelRiesgo?.nombre ?? riskLabel(plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
     planElegido: strategyLabel(plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
     planElegidoKey: plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium",
+    aiAjustado: Boolean(plan.aiAjustado ?? false),
   }));
 }
 
@@ -180,6 +182,7 @@ async function persistRecommendationPlan(
       ingresoMensualEstimado: new Prisma.Decimal(context.goal.monthlyIncome),
       gastoMensualEstimado: new Prisma.Decimal(context.goal.monthlyExpenses + context.goal.monthlyDebtCommitment),
       ahorroSugerido: new Prisma.Decimal(selectedPlan.monthlyContribution),
+      aiAjustado: Boolean(context.aiAdjusted ?? false),
       idNivelRiesgo: riskLevelId,
       idEstado: activeStateId,
       estrategias: {
@@ -207,6 +210,7 @@ async function persistRecommendationPlan(
     ahorroSugerido: toNumber(savedPlan.ahorroSugerido),
     ingresoMensualEstimado: toNumber(savedPlan.ingresoMensualEstimado),
     gastoMensualEstimado: toNumber(savedPlan.gastoMensualEstimado),
+    aiAjustado: Boolean(savedPlan.aiAjustado ?? false),
     nivelRiesgo: savedPlan.nivelRiesgo?.nombre ?? riskLabel(selectedPlan.key),
     planElegido: strategyLabel(savedPlan.estrategias[0]?.tipoEstrategia === "high" ? "high" : savedPlan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
     planElegidoKey: savedPlan.estrategias[0]?.tipoEstrategia === "high" ? "high" : savedPlan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium",
