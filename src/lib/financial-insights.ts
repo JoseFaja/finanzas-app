@@ -1,10 +1,33 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-
-type PlanKey = "high" | "medium" | "low";
-
-export interface RefinementAnswer {
-  id: string;
+          {
+            role: "system",
+            content: `Eres un analista financiero. Lee atentamente las refinement answers proporcionadas por el usuario y ÚSALAS para ajustar únicamente los montos mensuales (monthlyContribution) y los meses estimados (estimatedMonths). No cambies estructuras, claves, ni otros campos como actions o tradeoffs salvo para aclarar el plan. Devuelve SOLO JSON válido (sin texto adicional) con la forma exacta:
+{
+  "plans": [
+    {
+      "key": "high|medium|low",
+      "title": "string",
+      "description": "string",
+      "monthlyContribution": number,
+      "estimatedMonths": integer,
+      "viability": "alta|media|baja",
+      "actions": ["string"],
+      "tradeoffs": ["string"],
+      "notes": ["string"]
+    }
+  ],
+  "summary": "string"
+}
+Reglas estrictas:
+- Debe haber exactamente 3 objetos en "plans": uno con "key": "high", otro "medium", otro "low".
+- Usa las refinement answers (respuestas del usuario) para ajustar los valores numéricos si son consistentes con el objetivo. Si el usuario indica un monto mensual o un plazo, prioriza esa información al calcular monthlyContribution y estimatedMonths.
+- "monthlyContribution" debe ser un número entero >= 1 y <= remainingAmount (el valor de "goal.remainingAmount" que fue enviado en el prompt).
+- "estimatedMonths" debe ser coherente con monthlyContribution (estimatedMonths ≈ ceil(remainingAmount / monthlyContribution)).
+- No modifiques otros campos críticos o añadas claves nuevas. Si alguna restricción no se puede cumplir exactamente, ajusta el número al valor más cercano válido.
+- Si no puedes cumplir las restricciones, devuelve null JSON (es decir, exactamente: null).
+Responde únicamente con el JSON solicitado.`,
+          },
   question: string;
   answer: string;
 }
