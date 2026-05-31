@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Target, TrendingUp, Zap, Clock, Pencil, Trash2 } from "lucide-react";
+import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles, RefreshCw, MessageSquareText } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -36,14 +36,64 @@ interface GoalRecord {
   cuenta: CatalogItem | null;
 }
 
+interface GoalAnswer {
+  id: string;
+  question: string;
+  answer: string;
+}
+
 interface Strategy {
-  name: string;
-  icon: typeof Zap | typeof TrendingUp | typeof Clock;
-  color: string;
-  monthlyPayment: number;
-  timeToGoal: number;
+  key: "high" | "medium" | "low";
+  title: string;
   description: string;
+  monthlyContribution: number;
+  estimatedMonths: number;
+  viability: "alta" | "media" | "baja";
   actions: string[];
+  tradeoffs: string[];
+  notes: string[];
+}
+
+interface RecommendationQuestion {
+  id: string;
+  question: string;
+  hint: string;
+}
+
+interface SavedPlanSummary {
+  id: number;
+  fechaGeneracion: string;
+  ahorroSugerido: number;
+  ingresoMensualEstimado: number;
+  gastoMensualEstimado: number;
+  nivelRiesgo: string;
+  planElegido: string;
+}
+
+interface GoalPlanResponse {
+  goal: {
+    id: number;
+    nombreObjetivo: string;
+    montoMeta: number;
+    fechaLimite: string;
+    currentAmount: number;
+    remainingAmount: number;
+    monthsLeft: number;
+    accountName: string | null;
+    accountBalance: number;
+    monthlyIncome: number;
+    monthlyExpenses: number;
+    monthlyDebtCommitment: number;
+    monthlyDisposableIncome: number;
+    debtPressure: number;
+  };
+  questions: RecommendationQuestion[];
+  plans: Strategy[];
+  aiUsed: boolean;
+  summary: string;
+  planGuardado: SavedPlanSummary | null;
+  historialGuardado: SavedPlanSummary[];
+  planAnterior: SavedPlanSummary | null;
 }
 
 const DEFAULT_GOAL_TYPES = [
@@ -56,6 +106,29 @@ const DEFAULT_GOAL_TYPES = [
   "Otro",
 ];
 
+const normalizeText = (value: string) => value.trim().toLowerCase();
+
+async function loadGoalTypes() {
+  const existingTypes = await fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo");
+  const knownNames = new Set(existingTypes.map((item) => normalizeText(item.nombre)));
+  const missingTypes = DEFAULT_GOAL_TYPES.filter((name) => !knownNames.has(normalizeText(name)));
+
+  if (missingTypes.length > 0) {
+    await Promise.all(
+      missingTypes.map((nombre) =>
+        fetchJson<CatalogItem>("/api/catalogos/tipo-objetivo", {
+          method: "POST",
+          body: JSON.stringify({ nombre }),
+        }),
+      ),
+    );
+
+    return fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo");
+  }
+
+  return existingTypes;
+}
+
 export function GoalsView() {
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
@@ -66,6 +139,10 @@ export function GoalsView() {
   const [editingGoal, setEditingGoal] = useState<GoalRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planData, setPlanData] = useState<GoalPlanResponse | null>(null);
+  const [refinementAnswers, setRefinementAnswers] = useState<Record<string, string>>({});
   const [newGoal, setNewGoal] = useState({
     nombreObjetivo: "",
     idTipoObjetivo: "",
@@ -74,29 +151,6 @@ export function GoalsView() {
     idPrioridad: "",
     idCuenta: "",
   });
-
-  const normalizeText = (value: string) => value.trim().toLowerCase();
-
-  const loadGoalTypes = async () => {
-    const existingTypes = await fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo");
-    const knownNames = new Set(existingTypes.map((item) => normalizeText(item.nombre)));
-    const missingTypes = DEFAULT_GOAL_TYPES.filter((name) => !knownNames.has(normalizeText(name)));
-
-    if (missingTypes.length > 0) {
-      await Promise.all(
-        missingTypes.map((nombre) =>
-          fetchJson<CatalogItem>("/api/catalogos/tipo-objetivo", {
-            method: "POST",
-            body: JSON.stringify({ nombre }),
-          }),
-        ),
-      );
-
-      return fetchJson<CatalogItem[]>("/api/catalogos/tipo-objetivo");
-    }
-
-    return existingTypes;
-  };
 
   useEffect(() => {
     let active = true;
@@ -122,8 +176,10 @@ export function GoalsView() {
         setGoalTypes(goalTypesResponse);
         setPriorities(prioritiesResponse);
 
-        if (!selectedGoalId && goalsResponse.length > 0) {
-          setSelectedGoalId(goalsResponse[0].id);
+        if (goalsResponse.length > 0) {
+          const firstGoalId = goalsResponse[0].id;
+          setSelectedGoalId((current) => current ?? firstGoalId);
+          void loadRecommendations(firstGoalId);
         }
 
         setNewGoal((current) => ({
@@ -152,19 +208,6 @@ export function GoalsView() {
     };
   }, []);
 
-  useEffect(() => {
-    if (selectedGoalId === null && goals.length > 0) {
-      setSelectedGoalId(goals[0].id);
-    }
-  }, [goals, selectedGoalId]);
-
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("es-CO", {
-      style: "currency",
-      currency: "COP",
-      minimumFractionDigits: 0,
-    }).format(amount);
-
   const selectedGoal = useMemo(
     () => goals.find((goal) => goal.id === selectedGoalId) ?? goals[0] ?? null,
     [goals, selectedGoalId],
@@ -175,63 +218,35 @@ export function GoalsView() {
     return Number(linkedAccount?.saldoActual ?? 0);
   };
 
-  const calculateStrategies = (goal: GoalRecord): Strategy[] => {
-    const currentAmount = getCurrentAmount(goal);
-    const targetAmount = Number(goal.montoMeta);
-    const remaining = Math.max(targetAmount - currentAmount, 0);
-    const monthsUntilDeadline = Math.max(
-      1,
-      Math.ceil(
-        (new Date(goal.fechaLimite).getTime() - new Date().getTime()) /
-          (1000 * 60 * 60 * 24 * 30),
-      ),
-    );
+  async function loadRecommendations(goalId: number, answers: GoalAnswer[] = []) {
+    setPlanLoading(true);
+    setPlanError(null);
 
-    return [
-      {
-        name: "Alto Impacto",
-        icon: Zap,
-        color: "text-red-600",
-        monthlyPayment: remaining / (monthsUntilDeadline * 0.6),
-        timeToGoal: Math.ceil(monthsUntilDeadline * 0.6),
-        description: "Estrategia agresiva para alcanzar tu objetivo rápidamente",
-        actions: [
-          "Reducir gastos no esenciales en un 40%",
-          "Destinar el 50% de ingresos extra al objetivo",
-          "Buscar ingresos adicionales (freelance, ventas)",
-          "Optimizar deudas de alto interés",
-        ],
-      },
-      {
-        name: "Impacto Medio",
-        icon: TrendingUp,
-        color: "text-orange-600",
-        monthlyPayment: remaining / monthsUntilDeadline,
-        timeToGoal: monthsUntilDeadline,
-        description: "Balance entre ahorro sostenible y progreso constante",
-        actions: [
-          "Reducir gastos no esenciales en un 20%",
-          "Destinar el 30% de ingresos extra al objetivo",
-          "Automatizar ahorros mensuales",
-          "Revisar y ajustar presupuesto mensualmente",
-        ],
-      },
-      {
-        name: "Bajo Impacto",
-        icon: Clock,
-        color: "text-blue-600",
-        monthlyPayment: remaining / (monthsUntilDeadline * 1.5),
-        timeToGoal: Math.ceil(monthsUntilDeadline * 1.5),
-        description: "Estrategia flexible que se adapta a tu ritmo de vida",
-        actions: [
-          "Reducir gastos no esenciales en un 10%",
-          "Destinar el 15% de ingresos extra al objetivo",
-          "Ahorrar de forma gradual sin sacrificios mayores",
-          "Revisar progreso trimestralmente",
-        ],
-      },
-    ];
-  };
+    try {
+      const response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
+        method: "POST",
+        body: JSON.stringify({ goalId, answers }),
+      });
+
+      setPlanData(response);
+      setRefinementAnswers((current) => {
+        const next = { ...current };
+
+        response.questions.forEach((question) => {
+          if (!(question.id in next)) {
+            next[question.id] = "";
+          }
+        });
+
+        return next;
+      });
+    } catch (error) {
+      setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
+      setPlanData(null);
+    } finally {
+      setPlanLoading(false);
+    }
+  }
 
   const openCreateDialog = () => {
     setEditingGoal(null);
@@ -299,7 +314,32 @@ export function GoalsView() {
     setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
   };
 
-  const currentAmount = selectedGoal ? getCurrentAmount(selectedGoal) : 0;
+  const handleRefreshPlan = async () => {
+    if (!selectedGoal) {
+      return;
+    }
+
+    const answers = (planData?.questions ?? []).map((question) => ({
+      id: question.id,
+      question: question.question,
+      answer: refinementAnswers[question.id] ?? "",
+    }));
+
+    await loadRecommendations(selectedGoal.id, answers);
+  };
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
+      minimumFractionDigits: 0,
+    }).format(amount);
+
+  const formatDate = (value: string) =>
+    new Intl.DateTimeFormat("es-CO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
 
   return (
     <div className="space-y-6">
@@ -341,7 +381,10 @@ export function GoalsView() {
                   className={`cursor-pointer transition-all ${
                     selectedGoal?.id === goal.id ? "ring-2 ring-primary" : ""
                   }`}
-                  onClick={() => setSelectedGoalId(goal.id)}
+                  onClick={() => {
+                    setSelectedGoalId(goal.id);
+                    void loadRecommendations(goal.id);
+                  }}
                 >
                   <CardHeader>
                     <div className="flex items-start justify-between gap-3">
@@ -405,12 +448,156 @@ export function GoalsView() {
           {selectedGoal && (
             <Card>
               <CardHeader>
-                <CardTitle>Plan Financiero - {selectedGoal.nombreObjetivo}</CardTitle>
-                <CardDescription>
-                  Elige la estrategia que mejor se adapte a tus posibilidades
-                </CardDescription>
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <CardTitle>Plan Financiero - {selectedGoal.nombreObjetivo}</CardTitle>
+                    <CardDescription>
+                      La recomendación se ajusta con tus cuentas, deudas, transacciones y respuestas.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="gap-1">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {planData?.aiUsed ? "IA activa" : "Modo inteligente"}
+                    </Badge>
+                    <Button variant="outline" size="sm" onClick={() => void handleRefreshPlan()}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Recalcular
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
+                {planLoading ? <p className="mb-4 text-sm text-muted-foreground">Generando recomendaciones...</p> : null}
+                {planError ? <p className="mb-4 text-sm text-destructive">{planError}</p> : null}
+
+                {planData ? (
+                  <div className="mb-6 grid gap-4 md:grid-cols-3">
+                    <Card className="md:col-span-2">
+                      <CardContent className="space-y-3 pt-6">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <MessageSquareText className="h-4 w-4" />
+                          Resumen de la recomendación
+                        </div>
+                        <p>{planData.summary}</p>
+                        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Saldo disponible</p>
+                            <p>{formatCurrency(planData.goal.accountBalance)}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Monto pendiente</p>
+                            <p>{formatCurrency(planData.goal.remainingAmount)}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Meses restantes</p>
+                            <p>{planData.goal.monthsLeft}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardContent className="space-y-3 pt-6">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <MessageSquareText className="h-4 w-4" />
+                          Preguntas para refinar
+                        </div>
+                        <div className="space-y-3">
+                          {planData.questions.map((question) => (
+                            <div key={question.id} className="space-y-2">
+                              <Label htmlFor={`question-${question.id}`}>{question.question}</Label>
+                              <Input
+                                id={`question-${question.id}`}
+                                value={refinementAnswers[question.id] ?? ""}
+                                onChange={(event) =>
+                                  setRefinementAnswers((current) => ({
+                                    ...current,
+                                    [question.id]: event.target.value,
+                                  }))
+                                }
+                                placeholder={question.hint}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <Button className="w-full" variant="secondary" onClick={() => void handleRefreshPlan()}>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Mejorar con estas respuestas
+                        </Button>
+                      </CardContent>
+                    </Card>
+
+                    {planData.planGuardado ? (
+                      <Card className="md:col-span-3">
+                        <CardHeader className="pb-3">
+                          <CardTitle>Plan guardado</CardTitle>
+                          <CardDescription>
+                            Este plan quedó registrado para seguimiento histórico y comparación futura.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid gap-3 md:grid-cols-4">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Fecha</p>
+                              <p>{formatDate(planData.planGuardado.fechaGeneracion)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Ahorro sugerido</p>
+                              <p>{formatCurrency(planData.planGuardado.ahorroSugerido)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Nivel de riesgo</p>
+                              <p>{planData.planGuardado.nivelRiesgo}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Plan base</p>
+                              <p className="capitalize">{planData.planGuardado.planElegido}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : null}
+
+                    {planData.historialGuardado.length > 0 ? (
+                      <Card className="md:col-span-3">
+                        <CardHeader className="pb-3">
+                          <CardTitle>Historial de planes</CardTitle>
+                          <CardDescription>Últimos planes generados y guardados para este objetivo</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            {planData.historialGuardado.map((plan) => (
+                              <div key={plan.id} className="flex flex-col gap-2 rounded-lg border p-4 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <p className="font-medium">{formatDate(plan.fechaGeneracion)}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    Riesgo {plan.nivelRiesgo} · base {plan.planElegido}
+                                  </p>
+                                </div>
+                                <div className="grid gap-3 text-sm md:grid-cols-3 md:text-right">
+                                  <div>
+                                    <p className="text-muted-foreground">Sugerido</p>
+                                    <p>{formatCurrency(plan.ahorroSugerido)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Ingresos</p>
+                                    <p>{formatCurrency(plan.ingresoMensualEstimado)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Gastos</p>
+                                    <p>{formatCurrency(plan.gastoMensualEstimado)}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <Tabs defaultValue="high" className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="high">Alto Impacto</TabsTrigger>
@@ -418,18 +605,28 @@ export function GoalsView() {
                     <TabsTrigger value="low">Bajo Impacto</TabsTrigger>
                   </TabsList>
 
-                  {calculateStrategies(selectedGoal).map((strategy, index) => {
-                    const tabValue = ["high", "medium", "low"][index];
-                    const Icon = strategy.icon;
+                  {(planData?.plans ?? []).map((strategy) => {
+                    const Icon = strategy.key === "high" ? Zap : strategy.key === "medium" ? TrendingUp : Clock;
 
                     return (
-                      <TabsContent key={tabValue} value={tabValue} className="space-y-4">
+                      <TabsContent key={strategy.key} value={strategy.key} className="space-y-4">
                         <div className="flex items-start gap-4">
-                          <div className={`rounded-lg bg-secondary p-3 ${strategy.color}`}>
+                          <div
+                            className={`rounded-lg p-3 ${
+                              strategy.key === "high"
+                                ? "bg-red-100 text-red-600"
+                                : strategy.key === "medium"
+                                  ? "bg-orange-100 text-orange-600"
+                                  : "bg-blue-100 text-blue-600"
+                            }`}
+                          >
                             <Icon className="h-6 w-6" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="mb-2 text-xl">{strategy.name}</h3>
+                            <div className="mb-2 flex items-center gap-2">
+                              <h3 className="text-xl">{strategy.title}</h3>
+                              <Badge variant="outline">Viabilidad {strategy.viability}</Badge>
+                            </div>
                             <p className="text-muted-foreground">{strategy.description}</p>
                           </div>
                         </div>
@@ -438,13 +635,13 @@ export function GoalsView() {
                           <Card>
                             <CardContent className="pt-6">
                               <p className="text-sm text-muted-foreground">Ahorro mensual requerido</p>
-                              <p className="text-2xl">{formatCurrency(strategy.monthlyPayment)}</p>
+                              <p className="text-2xl">{formatCurrency(strategy.monthlyContribution)}</p>
                             </CardContent>
                           </Card>
                           <Card>
                             <CardContent className="pt-6">
                               <p className="text-sm text-muted-foreground">Tiempo estimado</p>
-                              <p className="text-2xl">{strategy.timeToGoal} meses</p>
+                              <p className="text-2xl">{strategy.estimatedMonths} meses</p>
                             </CardContent>
                           </Card>
                         </div>
@@ -461,6 +658,39 @@ export function GoalsView() {
                               </li>
                             ))}
                           </ul>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Trade-offs</p>
+                              <ul className="mt-3 space-y-2 text-sm">
+                                {strategy.tradeoffs.map((item) => (
+                                  <li key={item} className="flex items-start gap-2">
+                                    <Badge variant="outline" className="mt-0.5">
+                                      !
+                                    </Badge>
+                                    <span>{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardContent className="pt-6">
+                              <p className="text-sm text-muted-foreground">Notas de IA</p>
+                              <ul className="mt-3 space-y-2 text-sm">
+                                {strategy.notes.map((item) => (
+                                  <li key={item} className="flex items-start gap-2">
+                                    <Badge variant="outline" className="mt-0.5">
+                                      AI
+                                    </Badge>
+                                    <span>{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </CardContent>
+                          </Card>
                         </div>
 
                         <Button className="w-full">Seleccionar esta estrategia</Button>
