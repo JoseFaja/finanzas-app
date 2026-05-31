@@ -6,6 +6,9 @@ export interface RefinementAnswer {
   question: string;
   answer: string;
 }
+
+type PlanKey = "high" | "medium" | "low";
+
 export interface RecommendationQuestion {
   id: string;
   question: string;
