@@ -9,7 +9,14 @@ export function parseRefinementValues(answers: RefinementAnswer[]) {
 
   for (const a of answers) {
     const text = `${a.question} ${a.answer}`.toLowerCase();
-    const numbers = Array.from(text.matchAll(/\d+(?:[.,]\d+)?/g), (match) => Number(match[0].replace(/\./g, "").replace(/,/g, ""))).filter((value) => Number.isFinite(value) && value > 0);
+    // Match numbers with optional thousands separators and decimals, e.g.:
+    // 1,000,000  100.000  1234.56  1.234,56
+    const numbers = Array.from(text.matchAll(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?/g), (match) => {
+      const raw = match[0];
+      // Normalize by removing any dot/comma separators to form an integer-like value
+      const normalized = raw.replace(/[.,]/g, "");
+      return Number(normalized);
+    }).filter((value) => Number.isFinite(value) && value > 0);
 
     if (numbers.length === 0) {
       continue;
