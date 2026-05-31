@@ -47,6 +47,7 @@ export interface GoalRecommendationContext {
   questions: RecommendationQuestion[];
   plans: GoalPlanVariant[];
   aiUsed: boolean;
+  aiAdjusted?: boolean;
   summary: string;
 }
 
@@ -190,7 +191,6 @@ function parseAnswerTone(answers: RefinementAnswer[]) {
   const combined = answers
     .map((answer) => `${answer.question} ${answer.answer}`.toLowerCase())
     .join(" ");
-
   return {
     wantsAggressiveDebtFocus:
       combined.includes("deuda") || combined.includes("pago") || combined.includes("interes"),
@@ -201,13 +201,63 @@ function parseAnswerTone(answers: RefinementAnswer[]) {
   };
 }
 
-async function tryAiGoalPlan(input: {
+export function parseRefinementValues(answers: RefinementAnswer[]) {
+  const result: { preferredMonthly?: number; desiredMonths?: number } = {};
+
+  for (const a of answers) {
+    const text = `${a.question} ${a.answer}`.toLowerCase();
+    const numbers = Array.from(text.matchAll(/\d+(?:[.,]\d+)?/g), (match) => Number(match[0].replace(/\./g, "").replace(/,/g, ""))).filter((value) => Number.isFinite(value) && value > 0);
+
+    if (numbers.length === 0) {
+      continue;
+    }
+
+    const monthMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(?:mes|meses|m\b)/i);
+    const moneyHints = /ahorr|guardar|destin|apartar|cuota|monto|valor|saldo|cop|pesos?/i.test(text);
+
+    if (monthMatch) {
+      const monthValue = Number(monthMatch[1].replace(/\./g, "").replace(/,/g, ""));
+
+      if (Number.isFinite(monthValue) && monthValue > 0) {
+        result.desiredMonths = Math.max(1, Math.round(monthValue));
+      }
+    }
+
+    if (moneyHints) {
+      const moneyValue = numbers.reduce((max, value) => Math.max(max, value), 0);
+
+      if (moneyValue > 0) {
+        result.preferredMonthly = Math.round(moneyValue);
+      }
+    }
+
+    if (result.desiredMonths === undefined && numbers.length > 0 && /mes(es)?/i.test(text)) {
+      const monthValue = numbers.find((value) => value <= 36) ?? numbers[0];
+
+      if (monthValue > 0) {
+        result.desiredMonths = Math.max(1, Math.round(monthValue));
+      }
+    }
+
+    if (result.preferredMonthly === undefined && numbers.length > 0) {
+      const moneyValue = numbers.length === 1 ? numbers[0] : numbers.reduce((max, value) => Math.max(max, value), 0);
+
+      if (moneyValue > 0) {
+        result.preferredMonthly = Math.round(moneyValue);
+      }
+    }
+  }
+
+  return result;
+}
+
+export async function tryAiGoalPlan(input: {
   context: GoalRecommendationContext["goal"];
   questions: RecommendationQuestion[];
   answers: RefinementAnswer[];
   plans: GoalPlanVariant[];
   snapshot: Snapshot;
-}) {
+}): Promise<AiPlanResult | null> {
   const apiKey = process.env.OPENAI_API_KEY ?? process.env.AI_API_KEY;
 
   if (!apiKey) {
@@ -247,8 +297,8 @@ async function tryAiGoalPlan(input: {
         messages: [
           {
             role: "system",
-            content:
-              "Eres un analista financiero. Devuelve solo JSON válido con la forma { plans: [{ key, title, description, monthlyContribution, estimatedMonths, viability, actions, tradeoffs, notes }], summary: string }. Mantén exactamente tres planes: high, medium y low.",
+              content:
+                "Eres un analista financiero. Devuelve SOLO JSON válido (sin texto adicional) con la forma exacta:\n{\n  \"plans\": [\n    {\n      \"key\": \"high|medium|low\",\n      \"title\": \"string\",\n      \"description\": \"string\",\n      \"monthlyContribution\": number,\n      \"estimatedMonths\": integer,\n      \"viability\": \"alta|media|baja\",\n      \"actions\": [\"string\"],\n      \"tradeoffs\": [\"string\"],\n      \"notes\": [\"string\"]\n    }\n  ],\n  \"summary\": \"string\"\n}\nReglas estrictas:\n- Debe haber exactamente 3 objetos en \"plans\": uno con \"key\": \"high\", otro \"medium\", otro \"low\`.\n- \"monthlyContribution\" debe ser un número entero >= 1 y <= remainingAmount (el valor de \"goal.remainingAmount\" que fue enviado en el prompt).\n- \"estimatedMonths\" debe ser coherente con monthlyContribution (estimatedMonths ≈ ceil(remainingAmount / monthlyContribution)).\n- No incluyas campos adicionales ni texto explicativo fuera del JSON.\n- Si no puedes cumplir las restricciones, devuelve null JSON (es decir, exactamente: null) para indicar fallo.\nResponde únicamente con el JSON solicitado.",
           },
           {
             role: "user",
@@ -282,16 +332,81 @@ async function tryAiGoalPlan(input: {
       return null;
     }
 
-    return {
-      plans: parsed.plans,
-      summary:
-        typeof parsed.summary === "string" && parsed.summary.trim().length > 0
-          ? parsed.summary.trim()
-          : "Plan ajustado con IA.",
-    };
+    // Validate and clamp AI plans to sensible numeric bounds
+    const validated = validateAndClampPlans(parsed.plans, input.context);
+
+    if (!validated) {
+      return null;
+    }
+
+    const finalSummary = typeof parsed.summary === "string" && parsed.summary.trim().length > 0 ? parsed.summary.trim() : "Plan ajustado con IA.";
+
+    if (validated.adjusted) {
+      return {
+        plans: validated.plans,
+        summary: `${finalSummary} (Nota: se ajustaron valores para respetar límites financieros).`,
+        adjusted: true,
+      };
+    }
+
+    return { plans: validated.plans, summary: finalSummary, adjusted: false };
   } catch {
     return null;
   }
+}
+
+function validateAndClampPlans(plans: GoalPlanVariant[], context: GoalRecommendationContext["goal"]) {
+  if (!Array.isArray(plans) || plans.length !== 3) return null;
+
+  const keys = new Set(plans.map((p) => p.key));
+  if (!keys.has("high") || !keys.has("medium") || !keys.has("low")) return null;
+
+  let adjusted = false;
+
+  const disposable = Math.max(context.monthlyDisposableIncome, 0);
+
+  const normalized = plans.map((p) => {
+    const monthly = Number(p.monthlyContribution ?? NaN) || 0;
+    if (!isFinite(monthly) || monthly <= 0) return null;
+
+    // Clamp to [1, remainingAmount]
+    const clamped = clamp(Math.round(monthly), 1, Math.max(1, Math.round(context.remainingAmount)));
+
+    if (clamped !== monthly) adjusted = true;
+
+    const estimatedMonths = Math.max(1, Math.ceil(context.remainingAmount / Math.max(clamped, 1)));
+
+    // Recompute viability based on disposable
+    const viability =
+      disposable >= clamped
+        ? "alta"
+        : disposable >= clamped * 0.75
+        ? "media"
+        : "baja";
+
+    const actions = Array.isArray(p.actions) ? p.actions.map(String) : [];
+    const tradeoffs = Array.isArray(p.tradeoffs) ? p.tradeoffs.map(String) : [];
+    const notes = Array.isArray(p.notes) ? p.notes.map(String) : [];
+
+    // If AI gave inconsistent estimatedMonths, adjust
+    if (p.estimatedMonths !== estimatedMonths) adjusted = true;
+
+    return {
+      key: p.key,
+      title: p.title || (p.key === "high" ? "Alto impacto" : p.key === "medium" ? "Impacto medio" : "Bajo impacto"),
+      description: p.description || "",
+      monthlyContribution: clamped,
+      estimatedMonths,
+      viability: viability as "alta" | "media" | "baja",
+      actions,
+      tradeoffs,
+      notes: adjusted ? [...notes, "AI original ajustado para respetar límites"] : notes,
+    } as GoalPlanVariant;
+  });
+
+  if (normalized.some((p) => p === null)) return null;
+
+  return { plans: normalized as GoalPlanVariant[], adjusted };
 }
 
 function buildGoalQuestions(context: GoalRecommendationContext["goal"], answers: RefinementAnswer[]) {
@@ -334,6 +449,7 @@ function buildGoalQuestions(context: GoalRecommendationContext["goal"], answers:
 
 function buildGoalPlans(context: GoalRecommendationContext["goal"], answers: RefinementAnswer[]) {
   const tone = parseAnswerTone(answers);
+  const refinementValues = parseRefinementValues(answers);
   const pressureBoost = tone.wantsAggressiveDebtFocus ? 1.1 : 1;
   const liquidityBoost = tone.wantsLiquidityFocus ? 0.9 : 1;
   const variabilityFactor = tone.hasVariableIncome ? 0.85 : 1;
@@ -341,10 +457,35 @@ function buildGoalPlans(context: GoalRecommendationContext["goal"], answers: Ref
   const baselineNeed = Math.max(context.remainingAmount / context.monthsLeft, 0);
   const disposable = Math.max(context.monthlyDisposableIncome, 0);
 
-  const monthlyTargets = {
+  let monthlyTargets = {
     high: Math.max(baselineNeed * 1.35 * pressureBoost, disposable * 0.8 * pressureBoost),
     medium: Math.max(baselineNeed, disposable * 0.55 * liquidityBoost),
     low: Math.max(baselineNeed * 0.72 * variabilityFactor, disposable * 0.3 * variabilityFactor),
+  };
+
+  // If the user provided a preferred monthly amount or desired months, respect those values.
+  if (refinementValues.preferredMonthly !== undefined) {
+    monthlyTargets.medium = refinementValues.preferredMonthly;
+    // spread around medium for high/low but keep within sensible bounds
+    monthlyTargets.high = Math.max(monthlyTargets.medium * 1.3, monthlyTargets.high);
+    monthlyTargets.low = Math.min(monthlyTargets.medium * 0.6, monthlyTargets.low);
+  }
+
+  if (refinementValues.desiredMonths !== undefined && refinementValues.desiredMonths > 0) {
+    const desired = Math.max(1, Math.floor(refinementValues.desiredMonths));
+    // compute monthly required to meet desired months
+    const needed = Math.ceil(context.remainingAmount / desired);
+    monthlyTargets.medium = Math.max(monthlyTargets.medium * 0.5, Math.min(monthlyTargets.medium, needed));
+    // adjust high/low around the needed value
+    monthlyTargets.high = Math.max(needed, monthlyTargets.high);
+    monthlyTargets.low = Math.min(needed, monthlyTargets.low);
+  }
+
+  // Never suggest saving more than the remaining amount in a single month (no need to overshoot)
+  monthlyTargets = {
+    high: Math.min(monthlyTargets.high, context.remainingAmount),
+    medium: Math.min(monthlyTargets.medium, context.remainingAmount),
+    low: Math.min(monthlyTargets.low, context.remainingAmount),
   };
 
   const buildPlan = (
@@ -580,15 +721,16 @@ export async function buildGoalRecommendationContext(userId: number, goalId: num
     },
   });
 
-  return {
-    goal: context,
-    questions,
-    plans: aiResult?.plans ?? deterministicPlans,
-    aiUsed: Boolean(aiResult),
-    summary:
-      aiResult?.summary ??
-      "Los planes se generaron con el perfil financiero actual, usando ingresos, gastos, deudas y el saldo disponible de la cuenta asociada.",
-  } satisfies GoalRecommendationContext;
+    return {
+      goal: context,
+      questions,
+      plans: aiResult?.plans ?? deterministicPlans,
+      aiUsed: Boolean(aiResult),
+      aiAdjusted: Boolean(aiResult?.adjusted ?? false),
+      summary:
+        aiResult?.summary ??
+        "Los planes se generaron con el perfil financiero actual, usando ingresos, gastos, deudas y el saldo disponible de la cuenta asociada.",
+    } satisfies GoalRecommendationContext;
 }
 
 export async function buildScoreInsightContext(userId: number): Promise<ScoreInsightResponse> {
@@ -782,4 +924,10 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
       nivelRiesgo: registro.nivelRiesgo?.nombre ?? null,
     })),
   };
+}
+
+export interface AiPlanResult {
+  plans: GoalPlanVariant[];
+  summary: string;
+  adjusted?: boolean;
 }
