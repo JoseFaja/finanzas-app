@@ -1,5 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+export interface RefinementAnswer {
+  id: string;
+  question: string;
+  answer: string;
+}
 export interface RecommendationQuestion {
   id: string;
   question: string;
