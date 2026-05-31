@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type PlanKey = "high" | "medium" | "low";
@@ -79,6 +80,14 @@ export interface ScoreInsightResponse {
     variacion: number;
     descripcion: string;
   };
+  historialPersistido: Array<{
+    id: number;
+    fechaCalculo: string;
+    puntaje: number;
+    ratioGastoIngreso: number;
+    capacidadAhorro: number;
+    nivelRiesgo: string | null;
+  }>;
 }
 
 interface Snapshot {
@@ -125,6 +134,56 @@ function average(values: number[]) {
   }
 
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function scoreRiskLabel(score: number) {
+  if (score >= 750) {
+    return "Bajo";
+  }
+
+  if (score >= 600) {
+    return "Moderado";
+  }
+
+  return "Alto";
+}
+
+async function getScoreRiskLevelId(score: number) {
+  const nombre = scoreRiskLabel(score);
+  const risk = await prisma.nivelRiesgo.findFirst({
+    where: { nombre: { equals: nombre, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  if (risk) {
+    return risk.id;
+  }
+
+  const created = await prisma.nivelRiesgo.create({
+    data: { nombre },
+    select: { id: true },
+  });
+
+  return created.id;
+}
+
+async function persistScoreSnapshot(input: {
+  userId: number;
+  score: number;
+  ratioGastoIngreso: number;
+  capacidadAhorro: number;
+}) {
+  const idNivelRiesgo = await getScoreRiskLevelId(input.score);
+
+  await prisma.scoreFinanciero.create({
+    data: {
+      idUsuario: input.userId,
+      puntaje: new Prisma.Decimal(input.score),
+      idNivelRiesgo,
+      ratioGastoIngreso: new Prisma.Decimal(input.ratioGastoIngreso),
+      capacidadAhorro: new Prisma.Decimal(input.capacidadAhorro),
+    },
+  });
 }
 
 function parseAnswerTone(answers: RefinementAnswer[]) {
@@ -549,6 +608,20 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
     }),
   ]);
 
+  const historialPersistido = await prisma.scoreFinanciero.findMany({
+    where: { idUsuario: userId },
+    orderBy: { fechaCalculo: "desc" },
+    take: 12,
+    select: {
+      id: true,
+      fechaCalculo: true,
+      puntaje: true,
+      ratioGastoIngreso: true,
+      capacidadAhorro: true,
+      nivelRiesgo: { select: { nombre: true } },
+    },
+  });
+
   const accountBalance = cuentas.reduce((sum, account) => sum + toNumber(account.saldoActual), 0);
   const totalDebt = deudas.reduce((sum, debt) => sum + toNumber(debt.saldoPendiente), 0);
   const debtPayments = transacciones.filter((transaction) => transaction.idDeuda);
@@ -611,6 +684,20 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
   const currentScore = monthlyScores.at(-1)?.score ?? 300;
   const previousScore = monthlyScores.at(-2)?.score ?? currentScore;
   const scoreDiff = currentScore - previousScore;
+
+  const averageMonthlyIncome = average(monthlyFlow.map((month) => month.ingresos));
+  const averageMonthlyExpenses = average(monthlyFlow.map((month) => month.gastos));
+  const averageMonthlyDebtPayments = average(monthlyFlow.map((month) => month.pagosDeuda));
+
+  await persistScoreSnapshot({
+    userId,
+    score: currentScore,
+    ratioGastoIngreso:
+      averageMonthlyIncome > 0
+        ? (averageMonthlyExpenses + averageMonthlyDebtPayments) / Math.max(averageMonthlyIncome, 1)
+        : 1,
+    capacidadAhorro: Math.max(averageMonthlyIncome - averageMonthlyExpenses - averageMonthlyDebtPayments, 0),
+  });
 
   const debtFactor = clamp(Math.round((1 - debtPressure) * 100), 0, 100);
   const savingsFactor = clamp(Math.round(averageSavingsRate * 100), 0, 100);
@@ -686,5 +773,13 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
       variacion: scoreDiff,
       descripcion: tendenciaDescripcion,
     },
+    historialPersistido: historialPersistido.map((registro) => ({
+      id: registro.id,
+      fechaCalculo: registro.fechaCalculo.toISOString(),
+      puntaje: toNumber(registro.puntaje),
+      ratioGastoIngreso: toNumber(registro.ratioGastoIngreso),
+      capacidadAhorro: toNumber(registro.capacidadAhorro),
+      nivelRiesgo: registro.nivelRiesgo?.nombre ?? null,
+    })),
   };
 }

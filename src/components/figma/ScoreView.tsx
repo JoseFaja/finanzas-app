@@ -37,6 +37,14 @@ interface ScoreResponse {
     variacion: number;
     descripcion: string;
   };
+  historialPersistido: Array<{
+    id: number;
+    fechaCalculo: string;
+    puntaje: number;
+    ratioGastoIngreso: number;
+    capacidadAhorro: number;
+    nivelRiesgo: string | null;
+  }>;
 }
 
 export function ScoreView() {
@@ -89,6 +97,7 @@ export function ScoreView() {
   const recommendations = scoreData?.consejos ?? [];
   const alerts = scoreData?.alertas ?? [];
   const trend = scoreData?.tendencia;
+  const persistedHistory = scoreData?.historialPersistido ?? [];
 
   const getScoreRating = (score: number) => {
     if (score >= 750) return { label: "Excelente", color: "bg-green-600" };
@@ -278,6 +287,40 @@ export function ScoreView() {
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {persistedHistory.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Historial guardado</CardTitle>
+            <CardDescription>Últimos cálculos almacenados en ScoreFinanciero</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {persistedHistory.map((record) => (
+                <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+                  <div>
+                    <p className="font-medium">
+                      {new Intl.DateTimeFormat("es-CO", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(record.fechaCalculo))}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Riesgo {record.nivelRiesgo ?? "Sin nivel"} · gasto/ingreso {record.ratioGastoIngreso.toFixed(2)} · ahorro {formatCurrency(record.capacidadAhorro)}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="text-sm">
+                    {record.puntaje}/1000
+                  </Badge>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       ) : null}

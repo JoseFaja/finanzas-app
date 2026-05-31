@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
@@ -68,6 +68,7 @@ interface SavedPlanSummary {
   gastoMensualEstimado: number;
   nivelRiesgo: string;
   planElegido: string;
+  planElegidoKey: "high" | "medium" | "low";
 }
 
 interface GoalPlanResponse {
@@ -91,6 +92,7 @@ interface GoalPlanResponse {
   plans: Strategy[];
   aiUsed: boolean;
   summary: string;
+  selectedPlanKey: "high" | "medium" | "low";
   planGuardado: SavedPlanSummary | null;
   historialGuardado: SavedPlanSummary[];
   planAnterior: SavedPlanSummary | null;
@@ -143,6 +145,7 @@ export function GoalsView() {
   const [planError, setPlanError] = useState<string | null>(null);
   const [planData, setPlanData] = useState<GoalPlanResponse | null>(null);
   const [refinementAnswers, setRefinementAnswers] = useState<Record<string, string>>({});
+  const [selectedStrategyKey, setSelectedStrategyKey] = useState<"high" | "medium" | "low">("medium");
   const [newGoal, setNewGoal] = useState({
     nombreObjetivo: "",
     idTipoObjetivo: "",
@@ -151,6 +154,52 @@ export function GoalsView() {
     idPrioridad: "",
     idCuenta: "",
   });
+
+  const selectedGoal = useMemo(
+    () => goals.find((goal) => goal.id === selectedGoalId) ?? goals[0] ?? null,
+    [goals, selectedGoalId],
+  );
+
+  const getCurrentAmount = (goal: GoalRecord) => {
+    const linkedAccount = accounts.find((account) => account.id === goal.idCuenta);
+    return Number(linkedAccount?.saldoActual ?? 0);
+  };
+
+  const loadRecommendations = useCallback(
+    async (
+    goalId: number,
+    answers: GoalAnswer[] = [],
+    selectedPlanKey: "high" | "medium" | "low" = "medium",
+  ) => {
+    setPlanLoading(true);
+    setPlanError(null);
+
+    try {
+      const response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
+        method: "POST",
+        body: JSON.stringify({ goalId, selectedPlanKey, answers }),
+      });
+
+      setPlanData(response);
+      setSelectedStrategyKey(response.selectedPlanKey ?? selectedPlanKey);
+      setRefinementAnswers((current) => {
+        const next = { ...current };
+
+        response.questions.forEach((question) => {
+          if (!(question.id in next)) {
+            next[question.id] = "";
+          }
+        });
+
+        return next;
+      });
+    } catch (error) {
+      setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
+      setPlanData(null);
+    } finally {
+      setPlanLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -179,7 +228,7 @@ export function GoalsView() {
         if (goalsResponse.length > 0) {
           const firstGoalId = goalsResponse[0].id;
           setSelectedGoalId((current) => current ?? firstGoalId);
-          void loadRecommendations(firstGoalId);
+          void loadRecommendations(firstGoalId, [], "medium");
         }
 
         setNewGoal((current) => ({
@@ -206,47 +255,22 @@ export function GoalsView() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadRecommendations]);
 
-  const selectedGoal = useMemo(
-    () => goals.find((goal) => goal.id === selectedGoalId) ?? goals[0] ?? null,
-    [goals, selectedGoalId],
-  );
-
-  const getCurrentAmount = (goal: GoalRecord) => {
-    const linkedAccount = accounts.find((account) => account.id === goal.idCuenta);
-    return Number(linkedAccount?.saldoActual ?? 0);
-  };
-
-  async function loadRecommendations(goalId: number, answers: GoalAnswer[] = []) {
-    setPlanLoading(true);
-    setPlanError(null);
-
-    try {
-      const response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
-        method: "POST",
-        body: JSON.stringify({ goalId, answers }),
-      });
-
-      setPlanData(response);
-      setRefinementAnswers((current) => {
-        const next = { ...current };
-
-        response.questions.forEach((question) => {
-          if (!(question.id in next)) {
-            next[question.id] = "";
-          }
-        });
-
-        return next;
-      });
-    } catch (error) {
-      setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
-      setPlanData(null);
-    } finally {
-      setPlanLoading(false);
+  const handleSelectStrategy = async (strategyKey: "high" | "medium" | "low") => {
+    if (!selectedGoal) {
+      return;
     }
-  }
+
+    const answers = (planData?.questions ?? []).map((question) => ({
+      id: question.id,
+      question: question.question,
+      answer: refinementAnswers[question.id] ?? "",
+    }));
+
+    setSelectedStrategyKey(strategyKey);
+    await loadRecommendations(selectedGoal.id, answers, strategyKey);
+  };
 
   const openCreateDialog = () => {
     setEditingGoal(null);
@@ -325,7 +349,7 @@ export function GoalsView() {
       answer: refinementAnswers[question.id] ?? "",
     }));
 
-    await loadRecommendations(selectedGoal.id, answers);
+    await loadRecommendations(selectedGoal.id, answers, selectedStrategyKey);
   };
 
   const formatCurrency = (amount: number) =>
@@ -460,6 +484,9 @@ export function GoalsView() {
                       <Sparkles className="h-3.5 w-3.5" />
                       {planData?.aiUsed ? "IA activa" : "Modo inteligente"}
                     </Badge>
+                    <Badge variant="secondary">
+                      Seleccionada: {selectedStrategyKey === "high" ? "Alto impacto" : selectedStrategyKey === "medium" ? "Impacto medio" : "Bajo impacto"}
+                    </Badge>
                     <Button variant="outline" size="sm" onClick={() => void handleRefreshPlan()}>
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Recalcular
@@ -492,6 +519,16 @@ export function GoalsView() {
                           <div>
                             <p className="text-sm text-muted-foreground">Meses restantes</p>
                             <p>{planData.goal.monthsLeft}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Estrategia activa</p>
+                            <p>
+                              {selectedStrategyKey === "high"
+                                ? "Alto impacto"
+                                : selectedStrategyKey === "medium"
+                                  ? "Impacto medio"
+                                  : "Bajo impacto"}
+                            </p>
                           </div>
                         </div>
                       </CardContent>
@@ -598,7 +635,7 @@ export function GoalsView() {
                   </div>
                 ) : null}
 
-                <Tabs defaultValue="high" className="w-full">
+                <Tabs value={selectedStrategyKey} onValueChange={(value) => setSelectedStrategyKey(value as "high" | "medium" | "low")} className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="high">Alto Impacto</TabsTrigger>
                     <TabsTrigger value="medium">Impacto Medio</TabsTrigger>
@@ -693,7 +730,9 @@ export function GoalsView() {
                           </Card>
                         </div>
 
-                        <Button className="w-full">Seleccionar esta estrategia</Button>
+                        <Button className="w-full" onClick={() => void handleSelectStrategy(strategy.key)}>
+                          {selectedStrategyKey === strategy.key ? "Estrategia seleccionada" : "Seleccionar esta estrategia"}
+                        </Button>
                       </TabsContent>
                     );
                   })}
