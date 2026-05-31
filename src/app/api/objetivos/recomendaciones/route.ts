@@ -17,7 +17,8 @@ const recommendationSchema = z.object({
       z.object({
         id: z.string().min(1),
         question: z.string().min(1),
-        answer: z.string().min(1),
+        // Permitimos respuestas vacías para no bloquear selecciones sin respuestas
+        answer: z.string().optional(),
       }),
     )
     .default([]),
@@ -32,7 +33,6 @@ interface SavedPlanSummary {
   nivelRiesgo: string;
   planElegido: string;
   planElegidoKey: "high" | "medium" | "low";
-  aiAjustado?: boolean;
 }
 
 function toNumber(value: unknown) {
@@ -159,7 +159,7 @@ async function getSavedPlans(userId: number): Promise<SavedPlanSummary[]> {
     nivelRiesgo: plan.nivelRiesgo?.nombre ?? riskLabel(plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
     planElegido: strategyLabel(plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
     planElegidoKey: plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium",
-    aiAjustado: Boolean(plan.aiAjustado ?? false),
+    // aiAjustado intentionally not exposed anymore
   }));
 }
 
@@ -182,7 +182,6 @@ async function persistRecommendationPlan(
       ingresoMensualEstimado: new Prisma.Decimal(context.goal.monthlyIncome),
       gastoMensualEstimado: new Prisma.Decimal(context.goal.monthlyExpenses + context.goal.monthlyDebtCommitment),
       ahorroSugerido: new Prisma.Decimal(selectedPlan.monthlyContribution),
-      aiAjustado: Boolean(context.aiAdjusted ?? false),
       idNivelRiesgo: riskLevelId,
       idEstado: activeStateId,
       estrategias: {
@@ -210,7 +209,6 @@ async function persistRecommendationPlan(
     ahorroSugerido: toNumber(savedPlan.ahorroSugerido),
     ingresoMensualEstimado: toNumber(savedPlan.ingresoMensualEstimado),
     gastoMensualEstimado: toNumber(savedPlan.gastoMensualEstimado),
-    aiAjustado: Boolean(savedPlan.aiAjustado ?? false),
     nivelRiesgo: savedPlan.nivelRiesgo?.nombre ?? riskLabel(selectedPlan.key),
     planElegido: strategyLabel(savedPlan.estrategias[0]?.tipoEstrategia === "high" ? "high" : savedPlan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
     planElegidoKey: savedPlan.estrategias[0]?.tipoEstrategia === "high" ? "high" : savedPlan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium",
@@ -241,7 +239,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = recommendationSchema.parse(body);
 
-    const context = await buildGoalRecommendationContext(userId, payload.goalId, payload.answers);
+    // Normalize answers: ensure `answer` is always a string for internal types
+    const normalizedAnswers = payload.answers.map((a) => ({ id: a.id, question: a.question, answer: a.answer ?? "" }));
+    const context = await buildGoalRecommendationContext(userId, payload.goalId, normalizedAnswers as any);
 
     if (!context) {
       return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });

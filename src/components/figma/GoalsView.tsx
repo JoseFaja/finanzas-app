@@ -69,7 +69,6 @@ interface SavedPlanSummary {
   nivelRiesgo: string;
   planElegido: string;
   planElegidoKey: "high" | "medium" | "low";
-  aiAjustado?: boolean;
 }
 
 interface GoalPlanResponse {
@@ -145,6 +144,7 @@ export function GoalsView() {
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planData, setPlanData] = useState<GoalPlanResponse | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [refinementAnswers, setRefinementAnswers] = useState<Record<string, string>>({});
   const [selectedStrategyKey, setSelectedStrategyKey] = useState<"high" | "medium" | "low">("medium");
   const [newGoal, setNewGoal] = useState({
@@ -168,39 +168,51 @@ export function GoalsView() {
 
   const loadRecommendations = useCallback(
     async (
-    goalId: number,
-    answers: GoalAnswer[] = [],
-    selectedPlanKey: "high" | "medium" | "low" = "medium",
-  ) => {
-    setPlanLoading(true);
-    setPlanError(null);
+      goalId: number,
+      answers: GoalAnswer[] = [],
+      selectedPlanKey: "high" | "medium" | "low" = "medium",
+      persist = false,
+    ) => {
+      setPlanLoading(true);
+      setPlanError(null);
 
-    try {
-      const response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
-        method: "POST",
-        body: JSON.stringify({ goalId, selectedPlanKey, answers }),
-      });
+      try {
+        let response: GoalPlanResponse;
 
-      setPlanData(response);
-      setSelectedStrategyKey(response.selectedPlanKey ?? selectedPlanKey);
-      setRefinementAnswers((current) => {
-        const next = { ...current };
+        if (persist) {
+          response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
+            method: "POST",
+            body: JSON.stringify({ goalId, selectedPlanKey, answers }),
+          });
+        } else {
+          response = await fetchJson<GoalPlanResponse>(`/api/objetivos/recomendaciones?goalId=${goalId}`);
+        }
 
-        response.questions.forEach((question) => {
-          if (!(question.id in next)) {
-            next[question.id] = "";
-          }
+        setPlanData(response);
+        setSelectedStrategyKey(response.selectedPlanKey ?? selectedPlanKey);
+        setRefinementAnswers((current) => {
+          const next = { ...current };
+
+          response.questions.forEach((question) => {
+            if (!(question.id in next)) {
+              next[question.id] = "";
+            }
+          });
+
+          return next;
         });
-
-        return next;
-      });
-    } catch (error) {
-      setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
-      setPlanData(null);
-    } finally {
-      setPlanLoading(false);
-    }
-  }, []);
+        return response;
+      } catch (error) {
+        setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
+        setPlanData(null);
+        if (persist) {
+          // Rethrow so callers that requested persistence can handle failure
+          throw error;
+        }
+      } finally {
+        setPlanLoading(false);
+      }
+    }, []);
 
   useEffect(() => {
     let active = true;
@@ -229,7 +241,8 @@ export function GoalsView() {
         if (goalsResponse.length > 0) {
           const firstGoalId = goalsResponse[0].id;
           setSelectedGoalId((current) => current ?? firstGoalId);
-          void loadRecommendations(firstGoalId, [], "medium");
+          // Preview without persisting on initial load
+          void loadRecommendations(firstGoalId, [], "medium", false);
         }
 
         setNewGoal((current) => ({
@@ -270,7 +283,16 @@ export function GoalsView() {
     }));
 
     setSelectedStrategyKey(strategyKey);
-    await loadRecommendations(selectedGoal.id, answers, strategyKey);
+    // Persist the selection (save plan)
+    try {
+      await loadRecommendations(selectedGoal.id, answers, strategyKey, true);
+      // show success toast
+      setToastMessage("Plan guardado correctamente");
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (e) {
+      setToastMessage("No se pudo guardar el plan");
+      setTimeout(() => setToastMessage(null), 3000);
+    }
   };
 
   const openCreateDialog = () => {
@@ -350,7 +372,8 @@ export function GoalsView() {
       answer: refinementAnswers[question.id] ?? "",
     }));
 
-    await loadRecommendations(selectedGoal.id, answers, selectedStrategyKey);
+    // Refresh preview without saving
+    await loadRecommendations(selectedGoal.id, answers, selectedStrategyKey, false);
   };
 
   const formatCurrency = (amount: number) =>
@@ -408,7 +431,8 @@ export function GoalsView() {
                   }`}
                   onClick={() => {
                     setSelectedGoalId(goal.id);
-                    void loadRecommendations(goal.id);
+                    // Preview plans without persisting
+                    void loadRecommendations(goal.id, [], "medium", false);
                   }}
                 >
                   <CardHeader>
@@ -417,7 +441,12 @@ export function GoalsView() {
                         <Target className="h-5 w-5" />
                         {goal.nombreObjetivo}
                       </CardTitle>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 items-center">
+                        {planData?.planGuardado && planData.goal?.id === goal.id ? (
+                          <Badge variant="secondary" className="mr-2">
+                            Plan guardado
+                          </Badge>
+                        ) : null}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -592,10 +621,7 @@ export function GoalsView() {
                               <p className="text-sm text-muted-foreground">Plan base</p>
                               <p className="capitalize">{planData.planGuardado.planElegido}</p>
                             </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">Ajuste IA</p>
-                              <p>{planData.planGuardado.aiAjustado ? "Sí" : "No"}</p>
-                            </div>
+                            {/* aiAjustado removed from UI - no longer displayed */}
                           </div>
                         </CardContent>
                       </Card>
@@ -614,7 +640,7 @@ export function GoalsView() {
                                 <div>
                                   <p className="font-medium">{formatDate(plan.fechaGeneracion)}</p>
                                       <p className="text-sm text-muted-foreground">
-                                        Riesgo {plan.nivelRiesgo} · base {plan.planElegido} {plan.aiAjustado ? "· Ajustado por IA" : ""}
+                                        Riesgo {plan.nivelRiesgo} · base {plan.planElegido}
                                       </p>
                                 </div>
                                 <div className="grid gap-3 text-sm md:grid-cols-3 md:text-right">
@@ -841,6 +867,13 @@ export function GoalsView() {
           </div>
         </DialogContent>
       </Dialog>
+      {toastMessage ? (
+        <div className="fixed bottom-6 right-6 z-50">
+          <div className="rounded-md bg-primary px-4 py-2 text-white shadow-lg">
+            {toastMessage}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
