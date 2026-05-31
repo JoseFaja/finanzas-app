@@ -9,9 +9,12 @@ export function parseRefinementValues(answers: RefinementAnswer[]) {
 
   for (const a of answers) {
     const text = `${a.question} ${a.answer}`.toLowerCase();
-    // Match numbers with optional thousands separators and decimals, e.g.:
-    // 1,000,000  100.000  1234.56  1.234,56
-    const numbers = Array.from(text.matchAll(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?/g), (match) => {
+    // Match numbers in either plain form (e.g. 100000, 1234.56) or grouped thousands (e.g. 1,000,000 or 100.000)
+    // The pattern matches either a grouped number (\d{1,3}(?:[.,]\d{3})+) or a plain sequence (\d+),
+    // optionally followed by a decimal part.
+    const numbers = Array.from(
+      text.matchAll(/(?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,]\d+)?/g),
+      (match) => {
       const raw = match[0];
       // Normalize by removing any dot/comma separators to form an integer-like value
       const normalized = raw.replace(/[.,]/g, "");
