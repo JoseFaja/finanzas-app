@@ -367,7 +367,7 @@ export function GoalsView() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl">Objetivos Financieros</h2>
-          <p className="text-muted-foreground">Define tus metas y obt├®n un plan personalizado</p>
+          <p className="text-muted-foreground">Define tus metas y obtén un plan personalizado</p>
         </div>
         <Button onClick={openCreateDialog}>
           <Target className="mr-2 h-4 w-4" />
