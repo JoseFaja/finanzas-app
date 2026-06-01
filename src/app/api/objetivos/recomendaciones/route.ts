@@ -4,7 +4,6 @@ import { z } from "zod";
 import {
   buildGoalRecommendationContext,
   type GoalPlanVariant,
-  type RefinementAnswer,
 } from "@/lib/financial-insights";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
@@ -12,16 +11,6 @@ import { requireUserId } from "@/lib/require-user";
 const recommendationSchema = z.object({
   goalId: z.number().int().positive(),
   selectedPlanKey: z.enum(["high", "medium", "low"]).default("medium"),
-  answers: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        question: z.string().min(1),
-        // Permitimos respuestas vacías para no bloquear selecciones sin respuestas
-        answer: z.string().optional(),
-      }),
-    )
-    .default([]),
   persist: z.boolean().default(true),
 });
 
@@ -86,9 +75,9 @@ function parseGoalId(value: string | null) {
   return goalId;
 }
 
-async function resolveRecommendations(goalId: number, answers: RefinementAnswer[]) {
+async function resolveRecommendations(goalId: number) {
   const userId = await requireUserId();
-  const context = await buildGoalRecommendationContext(userId, goalId, answers);
+  const context = await buildGoalRecommendationContext(userId, goalId);
 
   if (!context) {
     return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });
@@ -224,7 +213,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ID inválido" }, { status: 400 });
     }
 
-    return await resolveRecommendations(goalId, []);
+    return await resolveRecommendations(goalId);
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -240,9 +229,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = recommendationSchema.parse(body);
 
-    // Normalize answers: ensure `answer` is always a string for internal types
-    const normalizedAnswers = payload.answers.map((a) => ({ id: a.id, question: a.question, answer: a.answer ?? "" }));
-    const context = await buildGoalRecommendationContext(userId, payload.goalId, normalizedAnswers as any);
+    const context = await buildGoalRecommendationContext(userId, payload.goalId);
 
     if (!context) {
       return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });
