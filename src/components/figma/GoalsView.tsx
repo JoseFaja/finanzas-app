@@ -95,9 +95,9 @@ interface GoalPlanResponse {
 const DEFAULT_GOAL_TYPES = [
   "Ahorro",
   "Fondo de emergencia",
-  "Inversi├│n",
+  "Inversión",
   "Viaje",
-  "Educaci├│n",
+  "Educación",
   "Compra importante",
   "Otro",
 ];
@@ -493,7 +493,7 @@ export function GoalsView() {
                   <div>
                     <CardTitle>Plan Financiero - {selectedGoal.nombreObjetivo}</CardTitle>
                     <CardDescription>
-                      La recomendaci├│n se ajusta con tus cuentas, deudas, ingresos y gastos.
+                      La recomendación se ajusta con tus cuentas, deudas, ingresos y gastos.
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -514,7 +514,7 @@ export function GoalsView() {
                     <Card className="md:col-span-2">
                       <CardContent className="space-y-3 pt-6">
                         <div className="text-sm text-muted-foreground">
-                          Resumen de la recomendaci├│n
+                          Resumen de la recomendación
                         </div>
                         <p>{planData.summary}</p>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -547,7 +547,7 @@ export function GoalsView() {
                         <CardHeader className="pb-3">
                           <CardTitle>Plan guardado</CardTitle>
                           <CardDescription>
-                            Este plan qued├│ registrado para seguimiento hist├│rico y comparaci├│n futura.
+                            Este plan quedó registrado para seguimiento histórico y comparación futura.
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -578,7 +578,7 @@ export function GoalsView() {
                       <Card className="md:col-span-3">
                         <CardHeader className="pb-3">
                           <CardTitle>Historial de planes</CardTitle>
-                          <CardDescription>├Ültimos planes generados y guardados para este objetivo</CardDescription>
+                          <CardDescription>Últimos planes generados y guardados para este objetivo</CardDescription>
                         </CardHeader>
                         <CardContent>
                           <div className="space-y-3">
@@ -587,7 +587,7 @@ export function GoalsView() {
                                 <div>
                                   <p className="font-medium">{formatDate(plan.fechaGeneracion)}</p>
                                       <p className="text-sm text-muted-foreground">
-                                        Riesgo {plan.nivelRiesgo} ┬À base {plan.planElegido}
+                                        Riesgo {plan.nivelRiesgo} · base {plan.planElegido}
                                       </p>
                                 </div>
                                 <div className="grid gap-3 text-sm md:grid-cols-3 md:text-right">
@@ -662,7 +662,7 @@ export function GoalsView() {
                         </div>
 
                         <div>
-                          <h4 className="mb-3">Plan de acci├│n</h4>
+                          <h4 className="mb-3">Plan de acción</h4>
                           <ul className="space-y-2">
                             {strategy.actions.map((action, i) => (
                               <li key={i} className="flex items-start gap-2">
