@@ -1,5 +1,4 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 
 export interface RefinementAnswer {
   id: string;
@@ -667,6 +666,7 @@ function buildScoreFromMonthlyData(monthlyData: ScoreFlowPoint[], debtPressure: 
 }
 
 export async function buildGoalRecommendationContext(userId: number, goalId: number, answers: RefinementAnswer[]) {
+  const { prisma } = await import("./prisma");
   const [goal, cuentas, deudas, transacciones] = await Promise.all([
     prisma.objetivoFinanciero.findFirst({
       where: { id: goalId, idUsuario: userId },
@@ -777,6 +777,7 @@ export async function buildGoalRecommendationContext(userId: number, goalId: num
 }
 
 export async function buildScoreInsightContext(userId: number): Promise<ScoreInsightResponse> {
+  const { prisma } = await import("./prisma");
   const [cuentas, transacciones, deudas] = await Promise.all([
     prisma.cuenta.findMany({
       where: { idUsuario: userId },
