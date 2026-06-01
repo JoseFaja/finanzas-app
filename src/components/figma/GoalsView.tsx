@@ -283,6 +283,21 @@ export function GoalsView() {
     }
   };
 
+  const applyPlan = async (goalId: number, planKey: "high" | "medium" | "low") => {
+    setPlanLoading(true);
+    setPlanError(null);
+    try {
+      await loadRecommendations(goalId, planKey, true);
+      setToastMessage("Plan guardado correctamente");
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (e) {
+      setToastMessage("No se pudo guardar el plan");
+      setTimeout(() => setToastMessage(null), 3000);
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
   const openCreateDialog = () => {
     setEditingGoal(null);
     setNewGoal({
@@ -456,6 +471,17 @@ export function GoalsView() {
                       </div>
                     </div>
                   </CardHeader>
+                  <CardContent className="py-2">
+                    <p className="text-sm text-muted-foreground">
+                      {savedPlan ? (
+                        <>
+                          <strong className="mr-1">Plan:</strong> {savedPlan.planElegido} · {formatCurrency(savedPlan.ahorroSugerido)} sugerido
+                        </>
+                      ) : (
+                        <span>Sin plan guardado</span>
+                      )}
+                    </p>
+                  </CardContent>
                   <CardContent>
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
