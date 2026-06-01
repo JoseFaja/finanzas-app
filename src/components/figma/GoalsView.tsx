@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
@@ -12,6 +12,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { fetchJson } from "./figma-api";
 import type { GoalPlanVariant } from "../../lib/financial-insights";
+
+const planLabelByKey: Record<GoalPlanVariant["key"], string> = {
+  high: "Alto impacto",
+  medium: "Impacto medio",
+  low: "Bajo impacto",
+};
 
 interface CatalogItem {
   id: number;
@@ -46,6 +52,18 @@ interface SavedPlanSummary {
   nivelRiesgo: string;
   planElegido: string;
   planElegidoKey: "high" | "medium" | "low";
+}
+
+function getStrategyLabel(key: "high" | "medium" | "low") {
+  if (key === "high") {
+    return "Alto impacto";
+  }
+
+  if (key === "medium") {
+    return "Impacto medio";
+  }
+
+  return "Bajo impacto";
 }
 
 interface GoalPlanResponse {
@@ -122,6 +140,7 @@ export function GoalsView() {
   const [planData, setPlanData] = useState<GoalPlanResponse | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedStrategyKey, setSelectedStrategyKey] = useState<"high" | "medium" | "low">("medium");
+  const planSectionRef = useRef<HTMLDivElement | null>(null);
   const [newGoal, setNewGoal] = useState({
     nombreObjetivo: "",
     idTipoObjetivo: "",
@@ -140,6 +159,18 @@ export function GoalsView() {
     const linkedAccount = accounts.find((account) => account.id === goal.idCuenta);
     return Number(linkedAccount?.saldoActual ?? 0);
   };
+
+  const openPlanEditor = useCallback(
+    async (goalId: number, strategyKey: "high" | "medium" | "low") => {
+      setSelectedGoalId(goalId);
+      setSelectedStrategyKey(strategyKey);
+      await loadRecommendations(goalId, strategyKey, false);
+      requestAnimationFrame(() => {
+        planSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    },
+    [loadRecommendations],
+  );
 
   const loadRecommendations = useCallback(
     async (
@@ -386,8 +417,20 @@ export function GoalsView() {
                       <div className="flex gap-1 items-center">
                         {planData?.planGuardado && planData.goal?.id === goal.id ? (
                           <Badge variant="secondary" className="mr-2">
-                            Plan guardado
+                            {getStrategyLabel(planData.planGuardado.planElegidoKey)}
                           </Badge>
+                        ) : null}
+                        {planData?.planGuardado && planData.goal?.id === goal.id ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void openPlanEditor(goal.id, planData.planGuardado.planElegidoKey);
+                            }}
+                          >
+                            Editar plan
+                          </Button>
                         ) : null}
                         <Button
                           variant="ghost"
@@ -442,7 +485,8 @@ export function GoalsView() {
           </div>
 
           {selectedGoal && (
-            <Card>
+            <div ref={planSectionRef}>
+              <Card>
               <CardHeader>
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -456,9 +500,7 @@ export function GoalsView() {
                       <Sparkles className="h-3.5 w-3.5" />
                       {planData?.aiUsed ? "IA activa" : "Modo inteligente"}
                     </Badge>
-                    <Badge variant="secondary">
-                      Seleccionada: {selectedStrategyKey === "high" ? "Alto impacto" : selectedStrategyKey === "medium" ? "Impacto medio" : "Bajo impacto"}
-                    </Badge>
+                    <Badge variant="secondary">Seleccionada: {getStrategyLabel(selectedStrategyKey)}</Badge>
                   </div>
                 </div>
               </CardHeader>
@@ -474,6 +516,10 @@ export function GoalsView() {
                           Resumen de la recomendación
                         </div>
                         <p>{planData.summary}</p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>Plan escogido:</span>
+                          <Badge variant="secondary">{planLabelByKey[planData.selectedPlanKey]}</Badge>
+                        </div>
                         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <p className="text-sm text-muted-foreground">Saldo disponible</p>
@@ -489,13 +535,7 @@ export function GoalsView() {
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground">Estrategia activa</p>
-                            <p>
-                              {selectedStrategyKey === "high"
-                                ? "Alto impacto"
-                                : selectedStrategyKey === "medium"
-                                  ? "Impacto medio"
-                                  : "Bajo impacto"}
-                            </p>
+                            <p>{getStrategyLabel(selectedStrategyKey)}</p>
                           </div>
                         </div>
                       </CardContent>
@@ -594,6 +634,8 @@ export function GoalsView() {
                                   : "bg-blue-100 text-blue-600"
                             }`}
                           >
+                        </Card>
+                      </div>
                             <Icon className="h-6 w-6" />
                           </div>
                           <div className="flex-1">
