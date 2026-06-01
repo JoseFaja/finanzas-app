@@ -95,9 +95,9 @@ interface GoalPlanResponse {
 const DEFAULT_GOAL_TYPES = [
   "Ahorro",
   "Fondo de emergencia",
-  "Inversión",
+  "Inversi├│n",
   "Viaje",
-  "Educación",
+  "Educaci├│n",
   "Compra importante",
   "Otro",
 ];
@@ -169,7 +169,7 @@ export function GoalsView() {
         planSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     },
-    [loadRecommendations],
+    [],
   );
 
   const loadRecommendations = useCallback(
@@ -367,7 +367,7 @@ export function GoalsView() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl">Objetivos Financieros</h2>
-          <p className="text-muted-foreground">Define tus metas y obtén un plan personalizado</p>
+          <p className="text-muted-foreground">Define tus metas y obt├®n un plan personalizado</p>
         </div>
         <Button onClick={openCreateDialog}>
           <Target className="mr-2 h-4 w-4" />
@@ -383,7 +383,7 @@ export function GoalsView() {
           <CardContent className="py-12 text-center">
             <Target className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground">
-              No tienes objetivos financieros. ¡Crea uno para comenzar!
+              No tienes objetivos financieros. ┬íCrea uno para comenzar!
             </p>
           </CardContent>
         </Card>
@@ -395,6 +395,7 @@ export function GoalsView() {
               const progress = Number(goal.montoMeta) > 0
                 ? (goalCurrentAmount / Number(goal.montoMeta)) * 100
                 : 0;
+              const savedPlan = planData?.goal?.id === goal.id ? planData.planGuardado : null;
 
               return (
                 <Card
@@ -415,18 +416,18 @@ export function GoalsView() {
                         {goal.nombreObjetivo}
                       </CardTitle>
                       <div className="flex gap-1 items-center">
-                        {planData?.planGuardado && planData.goal?.id === goal.id ? (
+                        {savedPlan ? (
                           <Badge variant="secondary" className="mr-2">
-                            {getStrategyLabel(planData.planGuardado.planElegidoKey)}
+                            {getStrategyLabel(savedPlan.planElegidoKey)}
                           </Badge>
                         ) : null}
-                        {planData?.planGuardado && planData.goal?.id === goal.id ? (
+                        {savedPlan ? (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={(event) => {
                               event.stopPropagation();
-                              void openPlanEditor(goal.id, planData.planGuardado.planElegidoKey);
+                              void openPlanEditor(goal.id, savedPlan.planElegidoKey);
                             }}
                           >
                             Editar plan
@@ -492,7 +493,7 @@ export function GoalsView() {
                   <div>
                     <CardTitle>Plan Financiero - {selectedGoal.nombreObjetivo}</CardTitle>
                     <CardDescription>
-                      La recomendación se ajusta con tus cuentas, deudas, ingresos y gastos.
+                      La recomendaci├│n se ajusta con tus cuentas, deudas, ingresos y gastos.
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -513,7 +514,7 @@ export function GoalsView() {
                     <Card className="md:col-span-2">
                       <CardContent className="space-y-3 pt-6">
                         <div className="text-sm text-muted-foreground">
-                          Resumen de la recomendación
+                          Resumen de la recomendaci├│n
                         </div>
                         <p>{planData.summary}</p>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -546,7 +547,7 @@ export function GoalsView() {
                         <CardHeader className="pb-3">
                           <CardTitle>Plan guardado</CardTitle>
                           <CardDescription>
-                            Este plan quedó registrado para seguimiento histórico y comparación futura.
+                            Este plan qued├│ registrado para seguimiento hist├│rico y comparaci├│n futura.
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -577,7 +578,7 @@ export function GoalsView() {
                       <Card className="md:col-span-3">
                         <CardHeader className="pb-3">
                           <CardTitle>Historial de planes</CardTitle>
-                          <CardDescription>Últimos planes generados y guardados para este objetivo</CardDescription>
+                          <CardDescription>├Ültimos planes generados y guardados para este objetivo</CardDescription>
                         </CardHeader>
                         <CardContent>
                           <div className="space-y-3">
@@ -586,7 +587,7 @@ export function GoalsView() {
                                 <div>
                                   <p className="font-medium">{formatDate(plan.fechaGeneracion)}</p>
                                       <p className="text-sm text-muted-foreground">
-                                        Riesgo {plan.nivelRiesgo} · base {plan.planElegido}
+                                        Riesgo {plan.nivelRiesgo} ┬À base {plan.planElegido}
                                       </p>
                                 </div>
                                 <div className="grid gap-3 text-sm md:grid-cols-3 md:text-right">
@@ -634,8 +635,6 @@ export function GoalsView() {
                                   : "bg-blue-100 text-blue-600"
                             }`}
                           >
-                        </Card>
-                      </div>
                             <Icon className="h-6 w-6" />
                           </div>
                           <div className="flex-1">
@@ -663,7 +662,7 @@ export function GoalsView() {
                         </div>
 
                         <div>
-                          <h4 className="mb-3">Plan de acción</h4>
+                          <h4 className="mb-3">Plan de acci├│n</h4>
                           <ul className="space-y-2">
                             {strategy.actions.map((action, i) => (
                               <li key={i} className="flex items-start gap-2">
@@ -718,8 +717,9 @@ export function GoalsView() {
                 </Tabs>
               </CardContent>
             </Card>
-          )}
-        </>
+          </div>
+        )}
+      </>
       )}
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -765,7 +765,7 @@ export function GoalsView() {
               />
             </div>
             <div>
-              <Label htmlFor="goal-deadline">Fecha límite</Label>
+              <Label htmlFor="goal-deadline">Fecha l├¡mite</Label>
               <Input
                 id="goal-deadline"
                 type="date"
