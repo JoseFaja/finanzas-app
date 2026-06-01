@@ -1,5 +1,4 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 
 export interface RefinementAnswer {
   id: string;
@@ -151,6 +150,7 @@ function scoreRiskLabel(score: number) {
 
 async function getScoreRiskLevelId(score: number) {
   const nombre = scoreRiskLabel(score);
+  const { prisma } = await import("./prisma");
   const risk = await prisma.nivelRiesgo.findFirst({
     where: { nombre: { equals: nombre, mode: "insensitive" } },
     select: { id: true },
@@ -175,6 +175,7 @@ async function persistScoreSnapshot(input: {
   capacidadAhorro: number;
 }) {
   const idNivelRiesgo = await getScoreRiskLevelId(input.score);
+  const { prisma } = await import("./prisma");
 
   await prisma.scoreFinanciero.create({
     data: {
@@ -341,6 +342,14 @@ Responde únicamente con el JSON solicitado.`,
 
     const rawContent = payload.choices?.[0]?.message?.content?.trim();
 
+    // TEMP LOG: Inspect raw AI response (truncated)
+    try {
+      // limit length to avoid huge logs
+      console.log("AI rawContent (truncated):", rawContent ? rawContent.slice(0, 2000) : rawContent);
+    } catch (e) {
+      // ignore logging errors
+    }
+
     if (!rawContent) {
       return null;
     }
@@ -403,6 +412,18 @@ function validateAndClampPlans(
   // If the user provided refinement answers, increase AI influence
   const hasRefinements = Array.isArray(refinementAnswers) && refinementAnswers.length > 0;
   const alpha = hasRefinements ? 0.6 : 0.35; // blend weight for AI vs baseline
+
+  // TEMP LOG: inspect blending inputs
+  try {
+    console.log("validateAndClampPlans inputs:", {
+      remainingAmount: context.remainingAmount,
+      monthlyDisposableIncome: context.monthlyDisposableIncome,
+      baseline: Array.from(baselineMap.entries()),
+      alpha,
+      refinementCount: Array.isArray(refinementAnswers) ? refinementAnswers.length : 0,
+      aiPlansSample: plans.map((p) => ({ key: p.key, monthlyContribution: p.monthlyContribution })),
+    });
+  } catch (e) {}
 
   const normalized = plans.map((p) => {
     const monthly = Number(p.monthlyContribution ?? NaN) || 0;
@@ -667,6 +688,7 @@ function buildScoreFromMonthlyData(monthlyData: ScoreFlowPoint[], debtPressure: 
 }
 
 export async function buildGoalRecommendationContext(userId: number, goalId: number, answers: RefinementAnswer[]) {
+  const { prisma } = await import("./prisma");
   const [goal, cuentas, deudas, transacciones] = await Promise.all([
     prisma.objetivoFinanciero.findFirst({
       where: { id: goalId, idUsuario: userId },
@@ -777,6 +799,7 @@ export async function buildGoalRecommendationContext(userId: number, goalId: num
 }
 
 export async function buildScoreInsightContext(userId: number): Promise<ScoreInsightResponse> {
+  const { prisma } = await import("./prisma");
   const [cuentas, transacciones, deudas] = await Promise.all([
     prisma.cuenta.findMany({
       where: { idUsuario: userId },
