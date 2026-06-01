@@ -138,6 +138,13 @@ export function GoalsView() {
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planData, setPlanData] = useState<GoalPlanResponse | null>(null);
+  const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
+  const [planEditorForm, setPlanEditorForm] = useState<{
+    goalId: number | null;
+    variant: "high" | "medium" | "low";
+    monthlyAmount: string;
+    months: string;
+  }>({ goalId: null, variant: "medium", monthlyAmount: "", months: "" });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedStrategyKey, setSelectedStrategyKey] = useState<"high" | "medium" | "low">("medium");
   const planSectionRef = useRef<HTMLDivElement | null>(null);
@@ -171,6 +178,19 @@ export function GoalsView() {
     },
     [],
   );
+
+  const handleEditPlanClick = async (goalId: number, strategyKey: "high" | "medium" | "low") => {
+    await openPlanEditor(goalId, strategyKey);
+    // Prefill form from planData
+    const strategy = planData?.plans?.find((p) => p.key === strategyKey);
+    setPlanEditorForm({
+      goalId,
+      variant: strategyKey,
+      monthlyAmount: strategy ? String(strategy.monthlyContribution ?? "") : "",
+      months: strategy ? String(strategy.estimatedMonths ?? "") : "",
+    });
+    setIsPlanEditorOpen(true);
+  };
 
   const loadRecommendations = useCallback(
     async (
@@ -442,7 +462,7 @@ export function GoalsView() {
                             size="sm"
                             onClick={(event) => {
                               event.stopPropagation();
-                              void openPlanEditor(goal.id, savedPlan.planElegidoKey);
+                              void handleEditPlanClick(goal.id, savedPlan.planElegidoKey);
                             }}
                           >
                             Editar plan
@@ -838,6 +858,81 @@ export function GoalsView() {
             <Button onClick={() => void handleAddGoal()} className="w-full">
               {editingGoal ? "Guardar cambios" : "Crear objetivo"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isPlanEditorOpen} onOpenChange={setIsPlanEditorOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar plan</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label htmlFor="plan-variant">Tipo de plan</Label>
+              <Select value={planEditorForm.variant} onValueChange={(value) => setPlanEditorForm((c) => ({ ...c, variant: value as any }))}>
+                <SelectTrigger id="plan-variant">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">Alto impacto</SelectItem>
+                  <SelectItem value="medium">Impacto medio</SelectItem>
+                  <SelectItem value="low">Bajo impacto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="plan-monthly">Aporte mensual</Label>
+                <Input id="plan-monthly" inputMode="numeric" value={planEditorForm.monthlyAmount} onChange={(e) => setPlanEditorForm((c) => ({ ...c, monthlyAmount: e.target.value }))} />
+              </div>
+              <div>
+                <Label htmlFor="plan-months">Horizonte (meses)</Label>
+                <Input id="plan-months" inputMode="numeric" value={planEditorForm.months} onChange={(e) => setPlanEditorForm((c) => ({ ...c, months: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setIsPlanEditorOpen(false)}>Cancelar</Button>
+              <Button
+                onClick={async () => {
+                  if (!planEditorForm.goalId) return;
+                  setPlanLoading(true);
+                  setPlanError(null);
+                  try {
+                    const body = {
+                      goalId: Number(planEditorForm.goalId),
+                      selectedPlanKey: planEditorForm.variant,
+                      persist: true,
+                      monthlyContribution: planEditorForm.monthlyAmount ? Number(planEditorForm.monthlyAmount) : undefined,
+                      horizonMonths: planEditorForm.months ? Number(planEditorForm.months) : undefined,
+                    } as any;
+
+                    const res = await fetch("/api/objetivos/recomendaciones", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(body),
+                    });
+
+                    const data = await res.json();
+                    if (!res.ok) {
+                      throw new Error(data?.error || "Error al guardar plan");
+                    }
+                    setPlanData(data as GoalPlanResponse);
+                    setToastMessage("Plan guardado correctamente");
+                    setTimeout(() => setToastMessage(null), 3000);
+                    setIsPlanEditorOpen(false);
+                  } catch (e) {
+                    setPlanError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setPlanLoading(false);
+                  }
+                }}
+              >
+                Guardar plan
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

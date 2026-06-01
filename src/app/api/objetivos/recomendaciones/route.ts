@@ -12,6 +12,8 @@ const recommendationSchema = z.object({
   goalId: z.number().int().positive(),
   selectedPlanKey: z.enum(["high", "medium", "low"]).default("medium"),
   persist: z.boolean().default(true),
+  monthlyContribution: z.number().positive().optional(),
+  horizonMonths: z.number().int().positive().optional(),
 });
 
 interface SavedPlanSummary {
@@ -157,8 +159,15 @@ async function persistRecommendationPlan(
   userId: number,
   context: NonNullable<Awaited<ReturnType<typeof buildGoalRecommendationContext>>>,
   selectedPlanKey: "high" | "medium" | "low",
+  overrideMonthly?: number | null,
+  overrideMonths?: number | null,
 ) {
-  const selectedPlan = context.plans.find((plan) => plan.key === selectedPlanKey) ?? context.plans[0];
+  const basePlan = context.plans.find((plan) => plan.key === selectedPlanKey) ?? context.plans[0];
+  const selectedPlan = {
+    ...basePlan,
+    monthlyContribution: typeof overrideMonthly === "number" ? overrideMonthly : basePlan.monthlyContribution,
+    estimatedMonths: typeof overrideMonths === "number" ? overrideMonths : basePlan.estimatedMonths,
+  } as typeof basePlan;
   const activeStateId = await getActiveStateId();
   const riskLevelId = await getRiskLevelId(selectedPlan.key);
   const orderedPlans = [
@@ -235,10 +244,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });
     }
 
-    // Only persist if explicitly requested; allow preview with refinement answers
+    // Only persist if explicitly requested; allow preview
     let planGuardado: SavedPlanSummary | null = null;
     if (payload.persist) {
-      planGuardado = await persistRecommendationPlan(userId, context, payload.selectedPlanKey);
+      planGuardado = await persistRecommendationPlan(
+        userId,
+        context,
+        payload.selectedPlanKey,
+        payload.monthlyContribution ?? undefined,
+        payload.horizonMonths ?? undefined,
+      );
     }
 
     const historialGuardado = await getSavedPlans(userId);
