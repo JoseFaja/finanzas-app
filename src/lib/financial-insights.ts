@@ -174,11 +174,6 @@ async function persistScoreSnapshot(input: {
   });
 }
 
-
-
-  return result;
-}
-
 export async function tryAiGoalPlan(input: {
   context: GoalRecommendationContext["goal"];
   plans: GoalPlanVariant[];
@@ -377,7 +372,7 @@ function buildGoalPlans(context: GoalRecommendationContext["goal"]) {
   const baselineNeed = Math.max(context.remainingAmount / context.monthsLeft, 0);
   const disposable = Math.max(context.monthlyDisposableIncome, 0);
 
-  const monthlyTargets = {
+  let monthlyTargets = {
     high: Math.max(baselineNeed * 1.35, disposable * 0.8),
     medium: Math.max(baselineNeed, disposable * 0.55),
     low: Math.max(baselineNeed * 0.72, disposable * 0.3),
@@ -424,9 +419,7 @@ function buildGoalPlans(context: GoalRecommendationContext["goal"]) {
     buildPlan(
       "high",
       "Alto impacto",
-      tone.wantsAggressiveDebtFocus
-        ? "Prioriza velocidad y disciplina para reducir deudas y alcanzar la meta antes."
-        : "Máxima aceleración con un esfuerzo más intenso sobre el presupuesto.",
+      "Máxima aceleración con un esfuerzo más intenso sobre el presupuesto.",
       monthlyTargets.high,
       [
         "Automatiza el ahorro apenas entre el ingreso.",
@@ -465,9 +458,7 @@ function buildGoalPlans(context: GoalRecommendationContext["goal"]) {
     buildPlan(
       "low",
       "Bajo impacto",
-      tone.hasVariableIncome
-        ? "Protege tu liquidez y avanza de forma gradual mientras estabilizas ingresos variables."
-        : "Plan suave para sostener la meta sin tensionar tu flujo mensual.",
+      "Plan suave para sostener la meta sin tensionar tu flujo mensual.",
       monthlyTargets.low,
       [
         "Define un ahorro base pequeño pero innegociable.",

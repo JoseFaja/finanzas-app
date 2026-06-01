@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { fetchJson } from "./figma-api";
+import type { GoalPlanVariant } from "../../lib/financial-insights";
 
 interface CatalogItem {
   id: number;
@@ -32,18 +35,6 @@ interface GoalRecord {
   tipoObjetivo: CatalogItem;
   prioridad: CatalogItem | null;
   cuenta: CatalogItem | null;
-}
-
-interface GoalRecord {
-  key: "high" | "medium" | "low";
-  title: string;
-  description: string;
-  monthlyContribution: number;
-  estimatedMonths: number;
-  viability: "alta" | "media" | "baja";
-  actions: string[];
-  tradeoffs: string[];
-  notes: string[];
 }
 
 interface SavedPlanSummary {
@@ -74,7 +65,7 @@ interface GoalPlanResponse {
     monthlyDisposableIncome: number;
     debtPressure: number;
   };
-  plans: Strategy[];
+  plans: GoalPlanVariant[];
   aiUsed: boolean;
   summary: string;
   selectedPlanKey: "high" | "medium" | "low";
@@ -479,8 +470,7 @@ export function GoalsView() {
                   <div className="mb-6 grid gap-4 md:grid-cols-3">
                     <Card className="md:col-span-2">
                       <CardContent className="space-y-3 pt-6">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <MessageSquareText className="h-4 w-4" />
+                        <div className="text-sm text-muted-foreground">
                           Resumen de la recomendación
                         </div>
                         <p>{planData.summary}</p>
