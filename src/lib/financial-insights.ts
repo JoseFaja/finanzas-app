@@ -513,7 +513,9 @@ function buildGoalQuestions(context: GoalRecommendationContext["goal"], answers:
 
 function buildGoalPlans(context: GoalRecommendationContext["goal"], answers: RefinementAnswer[]) {
   const tone = parseAnswerTone(answers);
-  const refinementValues = parseRefinementValues(answers);
+  // Note: parseRefinementValues is no longer used here to avoid unrelated numeric substitution.
+  // The IA (tryAiGoalPlan) will handle numeric refinement answers when present.
+  // Here we only use tone indicators (wantsAggressiveDebtFocus, wantsLiquidityFocus, hasVariableIncome).
   const pressureBoost = tone.wantsAggressiveDebtFocus ? 1.1 : 1;
   const liquidityBoost = tone.wantsLiquidityFocus ? 0.9 : 1;
   const variabilityFactor = tone.hasVariableIncome ? 0.85 : 1;
@@ -526,24 +528,6 @@ function buildGoalPlans(context: GoalRecommendationContext["goal"], answers: Ref
     medium: Math.max(baselineNeed, disposable * 0.55 * liquidityBoost),
     low: Math.max(baselineNeed * 0.72 * variabilityFactor, disposable * 0.3 * variabilityFactor),
   };
-
-  // If the user provided a preferred monthly amount or desired months, respect those values.
-  if (refinementValues.preferredMonthly !== undefined) {
-    monthlyTargets.medium = refinementValues.preferredMonthly;
-    // spread around medium for high/low but keep within sensible bounds
-    monthlyTargets.high = Math.max(monthlyTargets.medium * 1.3, monthlyTargets.high);
-    monthlyTargets.low = Math.min(monthlyTargets.medium * 0.6, monthlyTargets.low);
-  }
-
-  if (refinementValues.desiredMonths !== undefined && refinementValues.desiredMonths > 0) {
-    const desired = Math.max(1, Math.floor(refinementValues.desiredMonths));
-    // compute monthly required to meet desired months
-    const needed = Math.ceil(context.remainingAmount / desired);
-    monthlyTargets.medium = Math.max(monthlyTargets.medium * 0.5, Math.min(monthlyTargets.medium, needed));
-    // adjust high/low around the needed value
-    monthlyTargets.high = Math.max(needed, monthlyTargets.high);
-    monthlyTargets.low = Math.min(needed, monthlyTargets.low);
-  }
 
   // Never suggest saving more than the remaining amount in a single month (no need to overshoot)
   monthlyTargets = {
