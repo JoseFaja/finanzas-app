@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles, RefreshCw, MessageSquareText } from "lucide-react";
+import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -36,13 +34,7 @@ interface GoalRecord {
   cuenta: CatalogItem | null;
 }
 
-interface GoalAnswer {
-  id: string;
-  question: string;
-  answer: string;
-}
-
-interface Strategy {
+interface GoalRecord {
   key: "high" | "medium" | "low";
   title: string;
   description: string;
@@ -52,12 +44,6 @@ interface Strategy {
   actions: string[];
   tradeoffs: string[];
   notes: string[];
-}
-
-interface RecommendationQuestion {
-  id: string;
-  question: string;
-  hint: string;
 }
 
 interface SavedPlanSummary {
@@ -88,7 +74,6 @@ interface GoalPlanResponse {
     monthlyDisposableIncome: number;
     debtPressure: number;
   };
-  questions: RecommendationQuestion[];
   plans: Strategy[];
   aiUsed: boolean;
   summary: string;
@@ -145,7 +130,6 @@ export function GoalsView() {
   const [planError, setPlanError] = useState<string | null>(null);
   const [planData, setPlanData] = useState<GoalPlanResponse | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [refinementAnswers, setRefinementAnswers] = useState<Record<string, string>>({});
   const [selectedStrategyKey, setSelectedStrategyKey] = useState<"high" | "medium" | "low">("medium");
   const [newGoal, setNewGoal] = useState({
     nombreObjetivo: "",
@@ -169,7 +153,6 @@ export function GoalsView() {
   const loadRecommendations = useCallback(
     async (
       goalId: number,
-      answers: GoalAnswer[] = [],
       selectedPlanKey: "high" | "medium" | "low" = "medium",
       persist = false,
     ) => {
@@ -179,12 +162,10 @@ export function GoalsView() {
       try {
         let response: GoalPlanResponse;
 
-        // Use POST if we have refinement answers OR if we need to persist
-        const hasAnswers = answers.length > 0;
-        if (persist || hasAnswers) {
+        if (persist) {
           response = await fetchJson<GoalPlanResponse>("/api/objetivos/recomendaciones", {
             method: "POST",
-            body: JSON.stringify({ goalId, selectedPlanKey, answers, persist }),
+            body: JSON.stringify({ goalId, selectedPlanKey, persist }),
           });
         } else {
           response = await fetchJson<GoalPlanResponse>(`/api/objetivos/recomendaciones?goalId=${goalId}`);
@@ -192,17 +173,6 @@ export function GoalsView() {
 
         setPlanData(response);
         setSelectedStrategyKey(response.selectedPlanKey ?? selectedPlanKey);
-        setRefinementAnswers((current) => {
-          const next = { ...current };
-
-          response.questions.forEach((question) => {
-            if (!(question.id in next)) {
-              next[question.id] = "";
-            }
-          });
-
-          return next;
-        });
         return response;
       } catch (error) {
         setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
@@ -244,7 +214,7 @@ export function GoalsView() {
           const firstGoalId = goalsResponse[0].id;
           setSelectedGoalId((current) => current ?? firstGoalId);
           // Preview without persisting on initial load
-          void loadRecommendations(firstGoalId, [], "medium", false);
+          void loadRecommendations(firstGoalId, "medium", false);
         }
 
         setNewGoal((current) => ({
@@ -278,16 +248,10 @@ export function GoalsView() {
       return;
     }
 
-    const answers = (planData?.questions ?? []).map((question) => ({
-      id: question.id,
-      question: question.question,
-      answer: refinementAnswers[question.id] ?? "",
-    }));
-
     setSelectedStrategyKey(strategyKey);
     // Persist the selection (save plan)
     try {
-      await loadRecommendations(selectedGoal.id, answers, strategyKey, true);
+      await loadRecommendations(selectedGoal.id, strategyKey, true);
       // show success toast
       setToastMessage("Plan guardado correctamente");
       setTimeout(() => setToastMessage(null), 3000);
@@ -363,21 +327,6 @@ export function GoalsView() {
     setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
   };
 
-  const handleRefreshPlan = async () => {
-    if (!selectedGoal) {
-      return;
-    }
-
-    const answers = (planData?.questions ?? []).map((question) => ({
-      id: question.id,
-      question: question.question,
-      answer: refinementAnswers[question.id] ?? "",
-    }));
-
-    // Refresh preview without saving
-    await loadRecommendations(selectedGoal.id, answers, selectedStrategyKey, false);
-  };
-
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-CO", {
       style: "currency",
@@ -434,7 +383,7 @@ export function GoalsView() {
                   onClick={() => {
                     setSelectedGoalId(goal.id);
                     // Preview plans without persisting
-                    void loadRecommendations(goal.id, [], "medium", false);
+                    void loadRecommendations(goal.id, "medium", false);
                   }}
                 >
                   <CardHeader>
@@ -508,7 +457,7 @@ export function GoalsView() {
                   <div>
                     <CardTitle>Plan Financiero - {selectedGoal.nombreObjetivo}</CardTitle>
                     <CardDescription>
-                      La recomendación se ajusta con tus cuentas, deudas, transacciones y respuestas.
+                      La recomendación se ajusta con tus cuentas, deudas, ingresos y gastos.
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -519,10 +468,6 @@ export function GoalsView() {
                     <Badge variant="secondary">
                       Seleccionada: {selectedStrategyKey === "high" ? "Alto impacto" : selectedStrategyKey === "medium" ? "Impacto medio" : "Bajo impacto"}
                     </Badge>
-                    <Button variant="outline" size="sm" onClick={() => void handleRefreshPlan()}>
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      Recalcular
-                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -563,37 +508,6 @@ export function GoalsView() {
                             </p>
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardContent className="space-y-3 pt-6">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <MessageSquareText className="h-4 w-4" />
-                          Preguntas para refinar
-                        </div>
-                        <div className="space-y-3">
-                          {planData.questions.map((question) => (
-                            <div key={question.id} className="space-y-2">
-                              <Label htmlFor={`question-${question.id}`}>{question.question}</Label>
-                              <Input
-                                id={`question-${question.id}`}
-                                value={refinementAnswers[question.id] ?? ""}
-                                onChange={(event) =>
-                                  setRefinementAnswers((current) => ({
-                                    ...current,
-                                    [question.id]: event.target.value,
-                                  }))
-                                }
-                                placeholder={question.hint}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <Button className="w-full" variant="secondary" onClick={() => void handleRefreshPlan()}>
-                          <Sparkles className="mr-2 h-4 w-4" />
-                          Mejorar con estas respuestas
-                        </Button>
                       </CardContent>
                     </Card>
 
