@@ -238,10 +238,8 @@ model EstrategiaPlan {
 
   descripcion String @db.VarChar(200)
 
-  idPrioridad Int?
-  prioridad   Prioridad? @relation(fields: [idPrioridad], references: [id])
-
-  tipoEstrategia String @db.VarChar(100)
+  idPrioridad Int
+  prioridad   Prioridad @relation(fields: [idPrioridad], references: [id])
 }
 
 model ScoreFinanciero {

@@ -63,6 +63,32 @@ function riskLabel(key: "high" | "medium" | "low") {
   return "Conservador";
 }
 
+function priorityNameForPlanKey(key: "high" | "medium" | "low") {
+  if (key === "high") {
+    return "Alto impacto";
+  }
+
+  if (key === "medium") {
+    return "Impacto medio";
+  }
+
+  return "Bajo impacto";
+}
+
+function planKeyFromPriorityName(value: string | null | undefined): "high" | "medium" | "low" {
+  const normalized = value?.trim().toLowerCase() ?? "";
+
+  if (normalized.includes("alto") || normalized.includes("alta") || normalized.includes("high")) {
+    return "high";
+  }
+
+  if (normalized.includes("bajo") || normalized.includes("baja") || normalized.includes("low")) {
+    return "low";
+  }
+
+  return "medium";
+}
+
 function parseGoalId(value: string | null) {
   if (!value) {
     return null;
@@ -128,13 +154,33 @@ async function getRiskLevelId(planKey: GoalPlanVariant["key"]) {
   return created.id;
 }
 
+async function getPriorityId(planKey: GoalPlanVariant["key"]) {
+  const priorityName = priorityNameForPlanKey(planKey);
+
+  const priority = await prisma.prioridad.findFirst({
+    where: { nombre: { equals: priorityName, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  if (priority) {
+    return priority.id;
+  }
+
+  const created = await prisma.prioridad.create({
+    data: { nombre: priorityName },
+    select: { id: true },
+  });
+
+  return created.id;
+}
+
 async function getSavedPlans(userId: number): Promise<SavedPlanSummary[]> {
   const plans = await prisma.planFinanciero.findMany({
     where: { idUsuario: userId },
     include: {
       nivelRiesgo: { select: { nombre: true } },
       estrategias: {
-        select: { tipoEstrategia: true },
+        select: { prioridad: { select: { nombre: true } } },
         orderBy: { id: "asc" },
       },
     },
@@ -142,17 +188,21 @@ async function getSavedPlans(userId: number): Promise<SavedPlanSummary[]> {
     take: 3,
   });
 
-  return plans.map((plan) => ({
-    id: plan.id,
-    fechaGeneracion: plan.fechaGeneracion.toISOString(),
-    ahorroSugerido: toNumber(plan.ahorroSugerido),
-    ingresoMensualEstimado: toNumber(plan.ingresoMensualEstimado),
-    gastoMensualEstimado: toNumber(plan.gastoMensualEstimado),
-    nivelRiesgo: plan.nivelRiesgo?.nombre ?? riskLabel(plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
-    planElegido: strategyLabel(plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
-    planElegidoKey: plan.estrategias[0]?.tipoEstrategia === "high" ? "high" : plan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium",
-    // aiAjustado intentionally not exposed anymore
-  }));
+  return plans.map((plan) => {
+    const planKey = planKeyFromPriorityName(plan.estrategias[0]?.prioridad?.nombre);
+
+    return {
+      id: plan.id,
+      fechaGeneracion: plan.fechaGeneracion.toISOString(),
+      ahorroSugerido: toNumber(plan.ahorroSugerido),
+      ingresoMensualEstimado: toNumber(plan.ingresoMensualEstimado),
+      gastoMensualEstimado: toNumber(plan.gastoMensualEstimado),
+      nivelRiesgo: plan.nivelRiesgo?.nombre ?? riskLabel(planKey),
+      planElegido: strategyLabel(planKey),
+      planElegidoKey: planKey,
+      // aiAjustado intentionally not exposed anymore
+    };
+  });
 }
 
 async function persistRecommendationPlan(
@@ -170,10 +220,29 @@ async function persistRecommendationPlan(
   } as typeof basePlan;
   const activeStateId = await getActiveStateId();
   const riskLevelId = await getRiskLevelId(selectedPlan.key);
+  const priorityIdsByKey = await Promise.all(
+    context.plans.map(async (plan) => [plan.key, await getPriorityId(plan.key)] as const),
+  );
+  const priorityIdByKey = new Map(priorityIdsByKey);
   const orderedPlans = [
     selectedPlan,
     ...context.plans.filter((plan) => plan.key !== selectedPlan.key),
   ];
+  const estrategias = orderedPlans.map((plan) => {
+    const priorityId = priorityIdByKey.get(plan.key);
+
+    if (!priorityId) {
+      throw new Error("INVALID_PRIORITY");
+    }
+
+    return {
+      descripcion: truncate(
+        `${plan.description} | Acciones: ${plan.actions.join("; ")} | Trade-offs: ${plan.tradeoffs.join("; ")}`,
+        200,
+      ),
+      prioridad: { connect: { id: priorityId } },
+    };
+  });
 
   const savedPlan = await prisma.planFinanciero.create({
     data: {
@@ -184,23 +253,19 @@ async function persistRecommendationPlan(
       idNivelRiesgo: riskLevelId,
       idEstado: activeStateId,
       estrategias: {
-        create: orderedPlans.map((plan) => ({
-          descripcion: truncate(
-            `${plan.description} | Acciones: ${plan.actions.join("; ")} | Trade-offs: ${plan.tradeoffs.join("; ")}`,
-            200,
-          ),
-          tipoEstrategia: plan.key,
-        })),
+        create: estrategias,
       },
     },
     include: {
       nivelRiesgo: { select: { nombre: true } },
       estrategias: {
-        select: { tipoEstrategia: true },
+        select: { prioridad: { select: { nombre: true } } },
         orderBy: { id: "asc" },
       },
     },
   });
+
+  const savedPlanKey = planKeyFromPriorityName(savedPlan.estrategias[0]?.prioridad?.nombre);
 
   return {
     id: savedPlan.id,
@@ -209,8 +274,8 @@ async function persistRecommendationPlan(
     ingresoMensualEstimado: toNumber(savedPlan.ingresoMensualEstimado),
     gastoMensualEstimado: toNumber(savedPlan.gastoMensualEstimado),
     nivelRiesgo: savedPlan.nivelRiesgo?.nombre ?? riskLabel(selectedPlan.key),
-    planElegido: strategyLabel(savedPlan.estrategias[0]?.tipoEstrategia === "high" ? "high" : savedPlan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium"),
-    planElegidoKey: savedPlan.estrategias[0]?.tipoEstrategia === "high" ? "high" : savedPlan.estrategias[0]?.tipoEstrategia === "low" ? "low" : "medium",
+    planElegido: strategyLabel(savedPlanKey),
+    planElegidoKey: savedPlanKey,
   } satisfies SavedPlanSummary;
 }
 
