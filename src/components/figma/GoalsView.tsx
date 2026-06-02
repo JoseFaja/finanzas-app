@@ -167,31 +167,6 @@ export function GoalsView() {
     return Number(linkedAccount?.saldoActual ?? 0);
   };
 
-  const openPlanEditor = useCallback(
-    async (goalId: number, strategyKey: "high" | "medium" | "low") => {
-      setSelectedGoalId(goalId);
-      setSelectedStrategyKey(strategyKey);
-      await loadRecommendations(goalId, strategyKey, false);
-      requestAnimationFrame(() => {
-        planSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    },
-    [],
-  );
-
-  const handleEditPlanClick = async (goalId: number, strategyKey: "high" | "medium" | "low") => {
-    await openPlanEditor(goalId, strategyKey);
-    // Prefill form from planData
-    const strategy = planData?.plans?.find((p) => p.key === strategyKey);
-    setPlanEditorForm({
-      goalId,
-      variant: strategyKey,
-      monthlyAmount: strategy ? String(strategy.monthlyContribution ?? "") : "",
-      months: strategy ? String(strategy.estimatedMonths ?? "") : "",
-    });
-    setIsPlanEditorOpen(true);
-  };
-
   const loadRecommendations = useCallback(
     async (
       goalId: number,
@@ -220,13 +195,39 @@ export function GoalsView() {
         setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
         setPlanData(null);
         if (persist) {
-          // Rethrow so callers that requested persistence can handle failure
           throw error;
         }
       } finally {
         setPlanLoading(false);
       }
-    }, []);
+    },
+    [],
+  );
+
+  const openPlanEditor = useCallback(
+    async (goalId: number, strategyKey: "high" | "medium" | "low") => {
+      setSelectedGoalId(goalId);
+      setSelectedStrategyKey(strategyKey);
+      await loadRecommendations(goalId, strategyKey, false);
+      requestAnimationFrame(() => {
+        planSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    },
+    [loadRecommendations],
+  );
+
+  const handleEditPlanClick = async (goalId: number, strategyKey: "high" | "medium" | "low") => {
+    await openPlanEditor(goalId, strategyKey);
+    // Prefill form from planData
+    const strategy = planData?.plans?.find((p) => p.key === strategyKey);
+    setPlanEditorForm({
+      goalId,
+      variant: strategyKey,
+      monthlyAmount: strategy ? String(strategy.monthlyContribution ?? "") : "",
+      months: strategy ? String(strategy.estimatedMonths ?? "") : "",
+    });
+    setIsPlanEditorOpen(true);
+  };
 
   useEffect(() => {
     let active = true;
@@ -297,24 +298,9 @@ export function GoalsView() {
       // show success toast
       setToastMessage("Plan guardado correctamente");
       setTimeout(() => setToastMessage(null), 3000);
-    } catch (e) {
+    } catch {
       setToastMessage("No se pudo guardar el plan");
       setTimeout(() => setToastMessage(null), 3000);
-    }
-  };
-
-  const applyPlan = async (goalId: number, planKey: "high" | "medium" | "low") => {
-    setPlanLoading(true);
-    setPlanError(null);
-    try {
-      await loadRecommendations(goalId, planKey, true);
-      setToastMessage("Plan guardado correctamente");
-      setTimeout(() => setToastMessage(null), 3000);
-    } catch (e) {
-      setToastMessage("No se pudo guardar el plan");
-      setTimeout(() => setToastMessage(null), 3000);
-    } finally {
-      setPlanLoading(false);
     }
   };
 
@@ -890,7 +876,12 @@ export function GoalsView() {
           <div className="space-y-4 py-2">
             <div>
               <Label htmlFor="plan-variant">Tipo de plan</Label>
-              <Select value={planEditorForm.variant} onValueChange={(value) => setPlanEditorForm((c) => ({ ...c, variant: value as any }))}>
+              <Select
+                value={planEditorForm.variant}
+                onValueChange={(value: "high" | "medium" | "low") =>
+                  setPlanEditorForm((current) => ({ ...current, variant: value }))
+                }
+              >
                 <SelectTrigger id="plan-variant">
                   <SelectValue />
                 </SelectTrigger>
@@ -921,13 +912,19 @@ export function GoalsView() {
                   setPlanLoading(true);
                   setPlanError(null);
                   try {
-                    const body = {
+                    const body: {
+                      goalId: number;
+                      selectedPlanKey: "high" | "medium" | "low";
+                      persist: true;
+                      monthlyContribution?: number;
+                      horizonMonths?: number;
+                    } = {
                       goalId: Number(planEditorForm.goalId),
                       selectedPlanKey: planEditorForm.variant,
                       persist: true,
                       monthlyContribution: planEditorForm.monthlyAmount ? Number(planEditorForm.monthlyAmount) : undefined,
                       horizonMonths: planEditorForm.months ? Number(planEditorForm.months) : undefined,
-                    } as any;
+                    };
 
                     const res = await fetch("/api/objetivos/recomendaciones", {
                       method: "POST",
