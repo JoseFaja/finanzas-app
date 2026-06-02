@@ -157,6 +157,7 @@ export function DebtsView() {
 
   const openCreateDialog = () => {
     setEditingDebt(null);
+    setError(null);
     setNewDebt({
       typeName: debtTypes[0]?.nombre || "",
       montoTotal: "0",
@@ -184,46 +185,63 @@ export function DebtsView() {
   };
 
   const handleSaveDebt = async () => {
-    const idTipoDeuda = await resolveDebtTypeId(newDebt.typeName);
-    const payload = {
-      idTipoDeuda,
-      montoTotal: Number(newDebt.montoTotal),
-      saldoPendiente: Number(newDebt.saldoPendiente),
-      tasaIntereses: Number(newDebt.tasaIntereses),
-      cuotas: Number(newDebt.cuotas),
-      cuotasPagadas: Number(newDebt.cuotasPagadas),
-      idFrecuenciaPago: newDebt.idFrecuenciaPago ? Number(newDebt.idFrecuenciaPago) : undefined,
-    };
+    try {
+      setError(null);
+      setLoading(true);
 
-    if (editingDebt) {
-      await fetchJson<DebtRecord>(`/api/deudas/${editingDebt.id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
+      const idTipoDeuda = await resolveDebtTypeId(newDebt.typeName);
+      const payload = {
+        idTipoDeuda,
+        montoTotal: Number(newDebt.montoTotal),
+        saldoPendiente: Number(newDebt.saldoPendiente),
+        tasaIntereses: Number(newDebt.tasaIntereses),
+        cuotas: Number(newDebt.cuotas),
+        cuotasPagadas: Number(newDebt.cuotasPagadas),
+        idFrecuenciaPago: newDebt.idFrecuenciaPago ? Number(newDebt.idFrecuenciaPago) : undefined,
+      };
+
+      if (editingDebt) {
+        await fetchJson<DebtRecord>(`/api/deudas/${editingDebt.id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson<DebtRecord>("/api/deudas", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      setNewDebt({
+        typeName: debtTypes[0]?.nombre || "",
+        montoTotal: "0",
+        saldoPendiente: "0",
+        tasaIntereses: "0",
+        cuotas: "12",
+        cuotasPagadas: "0",
+        idFrecuenciaPago: paymentFrequencies[0] ? String(paymentFrequencies[0].id) : "",
       });
-    } else {
-      await fetchJson<DebtRecord>("/api/deudas", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      setEditingDebt(null);
+      setIsDialogOpen(false);
+      await refreshDebts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
     }
-
-    setNewDebt({
-      typeName: debtTypes[0]?.nombre || "",
-      montoTotal: "0",
-      saldoPendiente: "0",
-      tasaIntereses: "0",
-      cuotas: "12",
-      cuotasPagadas: "0",
-      idFrecuenciaPago: paymentFrequencies[0] ? String(paymentFrequencies[0].id) : "",
-    });
-    setEditingDebt(null);
-    setIsDialogOpen(false);
-    await refreshDebts();
   };
 
   const handleDeleteDebt = async (id: number) => {
-    await fetchJson(`/api/deudas/${id}`, { method: "DELETE" });
-    await refreshDebts();
+    try {
+      setError(null);
+      setLoading(true);
+      await fetchJson(`/api/deudas/${id}`, { method: "DELETE" });
+      await refreshDebts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
