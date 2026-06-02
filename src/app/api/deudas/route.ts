@@ -21,6 +21,7 @@ export async function GET() {
       where: { idUsuario: userId },
       include: {
         tipoDeuda: { select: { id: true, nombre: true } },
+        frecuenciaPago: { select: { id: true, nombre: true } },
       },
       orderBy: { id: "desc" },
     });
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
       },
       include: {
         tipoDeuda: { select: { id: true, nombre: true } },
+        frecuenciaPago: { select: { id: true, nombre: true } },
       },
     });
 
