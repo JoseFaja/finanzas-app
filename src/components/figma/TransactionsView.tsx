@@ -21,6 +21,14 @@ interface AccountItem {
   nombre: string;
 }
 
+interface DebtItem {
+  id: number;
+  saldoPendiente: number | string;
+  tipoDeuda: {
+    nombre: string;
+  };
+}
+
 interface TransactionRecord {
   id: number;
   descripcion: string | null;
@@ -29,6 +37,8 @@ interface TransactionRecord {
   fecha: string;
   cuenta: AccountItem;
   categoria: CatalogItem | null;
+  metodoPago: CatalogItem | null;
+  deuda: DebtItem | null;
 }
 
 interface TransactionFormState {
@@ -37,12 +47,18 @@ interface TransactionFormState {
   type: "income" | "expense";
   category: string;
   account: string;
+  paymentMethod: string;
+  debt: string;
 }
+
+const emptyOptionalValue = "none";
 
 export function TransactionsView() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [categories, setCategories] = useState<CatalogItem[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<CatalogItem[]>([]);
+  const [debts, setDebts] = useState<DebtItem[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<TransactionRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,9 +66,11 @@ export function TransactionsView() {
   const [newTransaction, setNewTransaction] = useState<TransactionFormState>({
     descripcion: "",
     amount: "0",
-    type: "expense" as "income" | "expense",
+    type: "expense",
     category: "",
     account: "",
+    paymentMethod: emptyOptionalValue,
+    debt: emptyOptionalValue,
   });
 
   useEffect(() => {
@@ -63,10 +81,18 @@ export function TransactionsView() {
       setError(null);
 
       try {
-        const [transactionsResponse, accountsResponse, categoriesResponse] = await Promise.all([
-          fetchJson<TransactionRecord[]>('/api/transacciones'),
-          fetchJson<AccountItem[]>('/api/cuentas'),
-          fetchJson<CatalogItem[]>('/api/catalogos/categoria'),
+        const [
+          transactionsResponse,
+          accountsResponse,
+          categoriesResponse,
+          paymentMethodsResponse,
+          debtsResponse,
+        ] = await Promise.all([
+          fetchJson<TransactionRecord[]>("/api/transacciones"),
+          fetchJson<AccountItem[]>("/api/cuentas"),
+          fetchJson<CatalogItem[]>("/api/catalogos/categoria"),
+          fetchJson<CatalogItem[]>("/api/catalogos/metodo-pago"),
+          fetchJson<DebtItem[]>("/api/deudas"),
         ]);
 
         if (!active) {
@@ -76,20 +102,22 @@ export function TransactionsView() {
         setTransactions(transactionsResponse);
         setAccounts(accountsResponse);
         setCategories(categoriesResponse);
+        setPaymentMethods(paymentMethodsResponse);
+        setDebts(debtsResponse);
 
         setNewTransaction((current) => ({
           ...current,
           account: current.account || String(accountsResponse[0]?.id ?? ""),
           category: current.category || String(categoriesResponse[0]?.id ?? ""),
+          paymentMethod: current.paymentMethod || emptyOptionalValue,
+          debt: current.debt || emptyOptionalValue,
         }));
       } catch (error) {
         if (!active) {
           return;
         }
 
-        setError(
-          error instanceof Error ? error.message : "No se pudieron cargar las transacciones",
-        );
+        setError(error instanceof Error ? error.message : "No se pudieron cargar las transacciones");
       } finally {
         if (active) {
           setLoading(false);
@@ -135,6 +163,8 @@ export function TransactionsView() {
       type: "expense",
       category: categories[0] ? String(categories[0].id) : "",
       account: accounts[0] ? String(accounts[0].id) : "",
+      paymentMethod: emptyOptionalValue,
+      debt: emptyOptionalValue,
     });
     setError(null);
     setIsDialogOpen(true);
@@ -148,6 +178,8 @@ export function TransactionsView() {
       type: transaction.esIngreso ? "income" : "expense",
       category: transaction.categoria ? String(transaction.categoria.id) : "",
       account: String(transaction.cuenta.id),
+      paymentMethod: transaction.metodoPago ? String(transaction.metodoPago.id) : emptyOptionalValue,
+      debt: transaction.deuda ? String(transaction.deuda.id) : emptyOptionalValue,
     });
     setError(null);
     setIsDialogOpen(true);
@@ -158,6 +190,11 @@ export function TransactionsView() {
     setTransactions(refreshedTransactions);
   };
 
+  const refreshDebts = async () => {
+    const refreshedDebts = await fetchJson<DebtItem[]>("/api/deudas");
+    setDebts(refreshedDebts);
+  };
+
   const handleSaveTransaction = async () => {
     try {
       setError(null);
@@ -166,6 +203,14 @@ export function TransactionsView() {
       const payload = {
         idCuenta: Number(newTransaction.account),
         idCategoria: newTransaction.category ? Number(newTransaction.category) : undefined,
+        idMetodoPago:
+          newTransaction.paymentMethod !== emptyOptionalValue
+            ? Number(newTransaction.paymentMethod)
+            : undefined,
+        idDeuda:
+          newTransaction.type === "expense" && newTransaction.debt !== emptyOptionalValue
+            ? Number(newTransaction.debt)
+            : undefined,
         monto: Number(newTransaction.amount),
         descripcion: newTransaction.descripcion || undefined,
         esIngreso: newTransaction.type === "income",
@@ -189,10 +234,12 @@ export function TransactionsView() {
         type: "expense",
         category: categories[0] ? String(categories[0].id) : "",
         account: accounts[0] ? String(accounts[0].id) : "",
+        paymentMethod: emptyOptionalValue,
+        debt: emptyOptionalValue,
       });
       setEditingTransaction(null);
       setIsDialogOpen(false);
-      await refreshTransactions();
+      await Promise.all([refreshTransactions(), refreshDebts()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -205,7 +252,7 @@ export function TransactionsView() {
       setError(null);
       setLoading(true);
       await fetchJson(`/api/transacciones/${id}`, { method: "DELETE" });
-      await refreshTransactions();
+      await Promise.all([refreshTransactions(), refreshDebts()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -218,11 +265,11 @@ export function TransactionsView() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl">Transacciones</h2>
-          <p className="text-muted-foreground">Registra tus ingresos y gastos</p>
+          <p className="text-muted-foreground">Registra tus ingresos, gastos y abonos</p>
         </div>
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
-          Nueva transacción
+          Nueva transaccion
         </Button>
       </div>
 
@@ -274,9 +321,16 @@ export function TransactionsView() {
                     )}
                   </div>
                   <div>
-                    <p>{transaction.descripcion || "Transacción"}</p>
+                    <p>{transaction.descripcion || "Transaccion"}</p>
                     <p className="text-sm text-muted-foreground">
-                      {transaction.categoria?.descripcion || "Sin categoría"} • {transaction.cuenta?.nombre}
+                      {[
+                        transaction.categoria?.descripcion || "Sin categoria",
+                        transaction.cuenta?.nombre,
+                        transaction.metodoPago?.nombre,
+                        transaction.deuda ? `Abono: ${transaction.deuda.tipoDeuda.nombre}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" - ")}
                     </p>
                   </div>
                 </div>
@@ -308,7 +362,7 @@ export function TransactionsView() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingTransaction ? "Editar transacción" : "Agregar transacción"}</DialogTitle>
+            <DialogTitle>{editingTransaction ? "Editar transaccion" : "Agregar transaccion"}</DialogTitle>
           </DialogHeader>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <div className="space-y-4 py-4">
@@ -317,7 +371,11 @@ export function TransactionsView() {
               <Select
                 value={newTransaction.type}
                 onValueChange={(value: "income" | "expense") =>
-                  setNewTransaction({ ...newTransaction, type: value })
+                  setNewTransaction({
+                    ...newTransaction,
+                    type: value,
+                    debt: value === "income" ? emptyOptionalValue : newTransaction.debt,
+                  })
                 }
               >
                 <SelectTrigger id="transaction-type">
@@ -330,7 +388,7 @@ export function TransactionsView() {
               </Select>
             </div>
             <div>
-              <Label htmlFor="transaction-description">Descripción</Label>
+              <Label htmlFor="transaction-description">Descripcion</Label>
               <Input
                 id="transaction-description"
                 value={newTransaction.descripcion}
@@ -370,13 +428,13 @@ export function TransactionsView() {
               </Select>
             </div>
             <div>
-              <Label htmlFor="transaction-category">Categoría</Label>
+              <Label htmlFor="transaction-category">Categoria</Label>
               <Select
                 value={newTransaction.category}
                 onValueChange={(value) => setNewTransaction({ ...newTransaction, category: value })}
               >
                 <SelectTrigger id="transaction-category">
-                  <SelectValue placeholder="Selecciona una categoría" />
+                  <SelectValue placeholder="Selecciona una categoria" />
                 </SelectTrigger>
                 <SelectContent>
                   {categories.map((category) => (
@@ -387,8 +445,50 @@ export function TransactionsView() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label htmlFor="transaction-payment-method">Metodo de pago</Label>
+              <Select
+                value={newTransaction.paymentMethod}
+                onValueChange={(value) =>
+                  setNewTransaction({ ...newTransaction, paymentMethod: value })
+                }
+              >
+                <SelectTrigger id="transaction-payment-method">
+                  <SelectValue placeholder="Selecciona un metodo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={emptyOptionalValue}>Sin metodo</SelectItem>
+                  {paymentMethods.map((method) => (
+                    <SelectItem key={method.id} value={String(method.id)}>
+                      {method.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {newTransaction.type === "expense" ? (
+              <div>
+                <Label htmlFor="transaction-debt">Abono a deuda</Label>
+                <Select
+                  value={newTransaction.debt}
+                  onValueChange={(value) => setNewTransaction({ ...newTransaction, debt: value })}
+                >
+                  <SelectTrigger id="transaction-debt">
+                    <SelectValue placeholder="Selecciona una deuda" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={emptyOptionalValue}>Sin deuda asociada</SelectItem>
+                    {debts.map((debt) => (
+                      <SelectItem key={debt.id} value={String(debt.id)}>
+                        {debt.tipoDeuda.nombre} - saldo {formatCurrency(Number(debt.saldoPendiente))}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <Button onClick={() => void handleSaveTransaction()} className="w-full">
-              {editingTransaction ? "Guardar cambios" : "Agregar transacción"}
+              {editingTransaction ? "Guardar cambios" : "Agregar transaccion"}
             </Button>
           </div>
         </DialogContent>
