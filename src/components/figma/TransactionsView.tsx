@@ -136,6 +136,7 @@ export function TransactionsView() {
       category: categories[0] ? String(categories[0].id) : "",
       account: accounts[0] ? String(accounts[0].id) : "",
     });
+    setError(null);
     setIsDialogOpen(true);
   };
 
@@ -148,6 +149,7 @@ export function TransactionsView() {
       category: transaction.categoria ? String(transaction.categoria.id) : "",
       account: String(transaction.cuenta.id),
     });
+    setError(null);
     setIsDialogOpen(true);
   };
 
@@ -157,41 +159,58 @@ export function TransactionsView() {
   };
 
   const handleSaveTransaction = async () => {
-    const payload = {
-      idCuenta: Number(newTransaction.account),
-      idCategoria: newTransaction.category ? Number(newTransaction.category) : undefined,
-      monto: Number(newTransaction.amount),
-      descripcion: newTransaction.descripcion || undefined,
-      esIngreso: newTransaction.type === "income",
-    };
+    try {
+      setError(null);
+      setLoading(true);
 
-    if (editingTransaction) {
-      await fetchJson<TransactionRecord>(`/api/transacciones/${editingTransaction.id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
+      const payload = {
+        idCuenta: Number(newTransaction.account),
+        idCategoria: newTransaction.category ? Number(newTransaction.category) : undefined,
+        monto: Number(newTransaction.amount),
+        descripcion: newTransaction.descripcion || undefined,
+        esIngreso: newTransaction.type === "income",
+      };
+
+      if (editingTransaction) {
+        await fetchJson<TransactionRecord>(`/api/transacciones/${editingTransaction.id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson<TransactionRecord>("/api/transacciones", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      setNewTransaction({
+        descripcion: "",
+        amount: "0",
+        type: "expense",
+        category: categories[0] ? String(categories[0].id) : "",
+        account: accounts[0] ? String(accounts[0].id) : "",
       });
-    } else {
-      await fetchJson<TransactionRecord>("/api/transacciones", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      setEditingTransaction(null);
+      setIsDialogOpen(false);
+      await refreshTransactions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
     }
-
-    setNewTransaction({
-      descripcion: "",
-      amount: "0",
-      type: "expense",
-      category: categories[0] ? String(categories[0].id) : "",
-      account: accounts[0] ? String(accounts[0].id) : "",
-    });
-    setEditingTransaction(null);
-    setIsDialogOpen(false);
-    await refreshTransactions();
   };
 
   const handleDeleteTransaction = async (id: number) => {
-    await fetchJson(`/api/transacciones/${id}`, { method: "DELETE" });
-    await refreshTransactions();
+    try {
+      setError(null);
+      setLoading(true);
+      await fetchJson(`/api/transacciones/${id}`, { method: "DELETE" });
+      await refreshTransactions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -291,6 +310,7 @@ export function TransactionsView() {
           <DialogHeader>
             <DialogTitle>{editingTransaction ? "Editar transacción" : "Agregar transacción"}</DialogTitle>
           </DialogHeader>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="transaction-type">Tipo</Label>

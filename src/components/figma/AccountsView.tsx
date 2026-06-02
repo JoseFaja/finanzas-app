@@ -92,30 +92,52 @@ export function AccountsView() {
       minimumFractionDigits: 0,
     }).format(amount);
 
+  const openCreateDialog = () => {
+    setIsDialogOpen(true);
+    setError(null);
+  };
+
   const handleAddAccount = async () => {
-    await fetchJson<AccountRecord>("/api/cuentas", {
-      method: "POST",
-      body: JSON.stringify({
-        nombre: newAccount.nombre,
-        idTipoCuenta: Number(newAccount.idTipoCuenta),
-        saldoActual: Number(newAccount.saldoActual),
-      }),
-    });
+    try {
+      setError(null);
+      setLoading(true);
 
-    setNewAccount({
-      nombre: "",
-      idTipoCuenta: accountTypes[0] ? String(accountTypes[0].id) : "",
-      saldoActual: "0",
-    });
-    setIsDialogOpen(false);
+      await fetchJson<AccountRecord>("/api/cuentas", {
+        method: "POST",
+        body: JSON.stringify({
+          nombre: newAccount.nombre,
+          idTipoCuenta: Number(newAccount.idTipoCuenta),
+          saldoActual: Number(newAccount.saldoActual),
+        }),
+      });
 
-    const refreshed = await fetchJson<AccountRecord[]>("/api/cuentas");
-    setAccounts(refreshed);
+      setNewAccount({
+        nombre: "",
+        idTipoCuenta: accountTypes[0] ? String(accountTypes[0].id) : "",
+        saldoActual: "0",
+      });
+      setIsDialogOpen(false);
+
+      const refreshed = await fetchJson<AccountRecord[]>("/api/cuentas");
+      setAccounts(refreshed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeleteAccount = async (id: number) => {
-    await fetchJson(`/api/cuentas/${id}`, { method: "DELETE" });
-    setAccounts(await fetchJson<AccountRecord[]>("/api/cuentas"));
+    try {
+      setError(null);
+      setLoading(true);
+      await fetchJson(`/api/cuentas/${id}`, { method: "DELETE" });
+      setAccounts(await fetchJson<AccountRecord[]>("/api/cuentas"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getAccountIcon = () => <Wallet className="h-5 w-5" />;
@@ -170,6 +192,7 @@ export function AccountsView() {
           <DialogHeader>
             <DialogTitle>Agregar nueva cuenta</DialogTitle>
           </DialogHeader>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="account-name">Nombre de la cuenta</Label>
