@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
+import { buildDebtCalculationSummary } from "@/lib/debt-calculations";
 
 const createDeudaSchema = z.object({
   idTipoDeuda: z.number().int().positive(),
   montoTotal: z.number().finite().nonnegative(),
-  saldoPendiente: z.number().finite().nonnegative(),
+  saldoPendiente: z.number().finite().positive(),
   tasaIntereses: z.number().finite(),
   cuotas: z.number().int().positive(),
   cuotasPagadas: z.number().int().min(0).default(0),
@@ -26,7 +27,12 @@ export async function GET() {
       orderBy: { id: "desc" },
     });
 
-    return NextResponse.json(deudas);
+    return NextResponse.json(
+      deudas.map((deuda) => ({
+        ...deuda,
+        ...buildDebtCalculationSummary(deuda),
+      })),
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -68,7 +74,13 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json(deuda, { status: 201 });
+    return NextResponse.json(
+      {
+        ...deuda,
+        ...buildDebtCalculationSummary(deuda),
+      },
+      { status: 201 },
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });

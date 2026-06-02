@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
+import { calculateEstimatedPaidInstallments } from "@/lib/debt-calculations";
 
 const updateTransaccionSchema = z.object({
   idCuenta: z.number().int().positive().optional(),
@@ -24,21 +25,6 @@ function parseId(params: { id: string }) {
   }
 
   return transaccionId;
-}
-
-function calculatePaidInstallments(
-  montoTotal: Prisma.Decimal,
-  saldoPendiente: Prisma.Decimal,
-  cuotas: number,
-) {
-  if (cuotas <= 0 || montoTotal.lte(0)) {
-    return 0;
-  }
-
-  const paidAmount = Prisma.Decimal.max(montoTotal.sub(saldoPendiente), new Prisma.Decimal(0));
-  const installmentAmount = montoTotal.div(cuotas);
-
-  return Math.min(cuotas, Math.floor(paidAmount.div(installmentAmount).toNumber()));
 }
 
 async function changeDebtBalance(
@@ -78,7 +64,13 @@ async function changeDebtBalance(
     where: { id: deuda.id },
     data: {
       saldoPendiente: nextDebtBalance,
-      cuotasPagadas: calculatePaidInstallments(montoTotal, nextDebtBalance, deuda.cuotas),
+      cuotasPagadas: calculateEstimatedPaidInstallments({
+        montoTotal,
+        saldoPendiente: nextDebtBalance,
+        tasaIntereses: 0,
+        cuotas: deuda.cuotas,
+        cuotasPagadas: 0,
+      }),
     },
   });
 }

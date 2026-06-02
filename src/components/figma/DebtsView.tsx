@@ -23,6 +23,10 @@ interface DebtRecord {
   tasaIntereses: number | string;
   cuotas: number;
   cuotasPagadas: number;
+  montoPagado?: number;
+  progresoPago?: number;
+  pagoMensualEstimado?: number;
+  totalConInteresesEstimado?: number;
   tipoDeuda: CatalogItem;
   frecuenciaPago: CatalogItem | null;
 }
@@ -35,6 +39,61 @@ interface DebtFormState {
   cuotas: string;
   cuotasPagadas: string;
   idFrecuenciaPago: string;
+}
+
+function calculatePaymentProgress(debt: DebtRecord) {
+  const total = Number(debt.montoTotal);
+  const pending = Number(debt.saldoPendiente);
+
+  if (!Number.isFinite(total) || total <= 0) {
+    return 0;
+  }
+
+  const paid = Math.max(total - pending, 0);
+
+  return Math.min((paid / total) * 100, 100);
+}
+
+function calculateEstimatedMonthlyPayment(debt: DebtRecord) {
+  if (typeof debt.pagoMensualEstimado === "number") {
+    return debt.pagoMensualEstimado;
+  }
+
+  const principal = Number(debt.saldoPendiente);
+  const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 1);
+  const monthlyRate = Number(debt.tasaIntereses) / 100;
+
+  if (!Number.isFinite(principal) || principal <= 0) {
+    return 0;
+  }
+
+  if (!Number.isFinite(monthlyRate) || monthlyRate <= 0) {
+    return principal / remainingInstallments;
+  }
+
+  const factor = Math.pow(1 + monthlyRate, remainingInstallments);
+
+  return (principal * monthlyRate * factor) / (factor - 1);
+}
+
+function formatProgress(value: number) {
+  if (value > 0 && value < 0.01) {
+    return "<0.01%";
+  }
+
+  if (value > 0 && value < 1) {
+    return `${value.toFixed(2)}%`;
+  }
+
+  return `${value.toFixed(1)}%`;
+}
+
+function getProgressBarValue(value: number) {
+  if (value > 0 && value < 2) {
+    return 2;
+  }
+
+  return value;
 }
 
 export function DebtsView() {
@@ -109,21 +168,28 @@ export function DebtsView() {
     }).format(amount);
 
   const totalDebt = useMemo(
-    () =>
-      debts.reduce(
-        (sum, debt) => sum + (Number(debt.montoTotal) - Number(debt.saldoPendiente)),
-        0,
-      ),
+    () => debts.reduce((sum, debt) => sum + Number(debt.saldoPendiente), 0),
     [debts],
   );
 
   const totalMonthlyPayment = useMemo(
-    () =>
-      debts.reduce((sum, debt) => {
-        const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 1);
-        return sum + Number(debt.saldoPendiente) / remainingInstallments;
-      }, 0),
+    () => debts.reduce((sum, debt) => sum + calculateEstimatedMonthlyPayment(debt), 0),
     [debts],
+  );
+
+  const formEstimatedMonthlyPayment = useMemo(
+    () =>
+      calculateEstimatedMonthlyPayment({
+        id: 0,
+        montoTotal: Number(newDebt.montoTotal),
+        saldoPendiente: Number(newDebt.saldoPendiente),
+        tasaIntereses: Number(newDebt.tasaIntereses),
+        cuotas: Number(newDebt.cuotas),
+        cuotasPagadas: Number(newDebt.cuotasPagadas),
+        tipoDeuda: { id: 0, nombre: newDebt.typeName },
+        frecuenciaPago: null,
+      }),
+    [newDebt],
   );
 
   const normalizeText = (value: string) => value.trim().toLowerCase();
@@ -190,10 +256,16 @@ export function DebtsView() {
       setLoading(true);
 
       const idTipoDeuda = await resolveDebtTypeId(newDebt.typeName);
+      const saldoPendiente = Number(newDebt.saldoPendiente);
+
+      if (!Number.isFinite(saldoPendiente) || saldoPendiente <= 0) {
+        throw new Error("El monto pendiente debe ser mayor a 0");
+      }
+
       const payload = {
         idTipoDeuda,
         montoTotal: Number(newDebt.montoTotal),
-        saldoPendiente: Number(newDebt.saldoPendiente),
+        saldoPendiente,
         tasaIntereses: Number(newDebt.tasaIntereses),
         cuotas: Number(newDebt.cuotas),
         cuotasPagadas: Number(newDebt.cuotasPagadas),
@@ -281,10 +353,19 @@ export function DebtsView() {
 
       <div className="space-y-4">
         {debts.map((debt) => {
-          const progress = debt.cuotas > 0 ? (debt.cuotasPagadas / debt.cuotas) * 100 : 0;
+          const progress =
+            typeof debt.progresoPago === "number" ? debt.progresoPago : calculatePaymentProgress(debt);
           const remaining = Number(debt.saldoPendiente);
-          const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 1);
-          const estimatedMonthlyPayment = remaining / remainingInstallments;
+          const estimatedMonthlyPayment = calculateEstimatedMonthlyPayment(debt);
+          const paidAmount =
+            typeof debt.montoPagado === "number"
+              ? debt.montoPagado
+              : Math.max(Number(debt.montoTotal) - Number(debt.saldoPendiente), 0);
+          const remainingInstallments = Math.max(debt.cuotas - debt.cuotasPagadas, 0);
+          const totalWithInterest =
+            typeof debt.totalConInteresesEstimado === "number"
+              ? debt.totalConInteresesEstimado
+              : estimatedMonthlyPayment * remainingInstallments;
 
           return (
             <Card key={debt.id}>
@@ -308,9 +389,9 @@ export function DebtsView() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Progreso de pago</span>
-                    <span>{progress.toFixed(1)}%</span>
+                    <span>{formatProgress(progress)}</span>
                   </div>
-                  <Progress value={progress} />
+                  <Progress value={getProgressBarValue(progress)} />
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -322,8 +403,16 @@ export function DebtsView() {
                     <p className="text-red-600">{formatCurrency(remaining)}</p>
                   </div>
                   <div>
+                    <p className="text-muted-foreground">Pagado</p>
+                    <p className="text-green-600">{formatCurrency(paidAmount)}</p>
+                  </div>
+                  <div>
                     <p className="text-muted-foreground">Pago mensual estimado</p>
                     <p>{formatCurrency(estimatedMonthlyPayment)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Total estimado con intereses</p>
+                    <p>{formatCurrency(totalWithInterest)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Tasa de interés</p>
@@ -391,6 +480,7 @@ export function DebtsView() {
               <Input
                 id="debt-pending"
                 type="number"
+                min="1"
                 value={newDebt.saldoPendiente}
                 onChange={(e) => setNewDebt({ ...newDebt, saldoPendiente: e.target.value })}
               />
@@ -405,6 +495,14 @@ export function DebtsView() {
                 onChange={(e) => setNewDebt({ ...newDebt, tasaIntereses: e.target.value })}
               />
             </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Pago mensual estimado</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl">{formatCurrency(formEstimatedMonthlyPayment)}</p>
+              </CardContent>
+            </Card>
             <div>
               <Label htmlFor="debt-installments">Cuotas</Label>
               <Input
