@@ -70,7 +70,7 @@ export async function PUT(
 
     const existing = await prisma.deuda.findFirst({
       where: { id: deudaId, idUsuario: userId },
-      select: { id: true },
+      select: { id: true, montoTotal: true, saldoPendiente: true, cuotas: true, cuotasPagadas: true },
     });
 
     if (!existing) {
