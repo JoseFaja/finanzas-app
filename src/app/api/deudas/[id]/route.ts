@@ -5,8 +5,8 @@ import { requireUserId } from "@/lib/require-user";
 
 const updateDebtSchema = z.object({
   idTipoDeuda: z.number().int().positive().optional(),
-  montoTotal: z.number().finite().optional(),
-  saldoPendiente: z.number().finite().optional(),
+  montoTotal: z.number().finite().nonnegative().optional(),
+  saldoPendiente: z.number().finite().nonnegative().optional(),
   tasaIntereses: z.number().finite().optional(),
   cuotas: z.number().int().positive().optional(),
   cuotasPagadas: z.number().int().nonnegative().optional(),
@@ -34,7 +34,7 @@ export async function DELETE(
 
     const existing = await prisma.deuda.findFirst({
       where: { id: deudaId, idUsuario: userId },
-      select: { id: true },
+      select: { id: true, montoTotal: true, saldoPendiente: true, cuotas: true, cuotasPagadas: true },
     });
 
     if (!existing) {
@@ -75,6 +75,20 @@ export async function PUT(
 
     if (!existing) {
       return NextResponse.json({ error: "Deuda no encontrada" }, { status: 404 });
+    }
+
+    // Compute effective values to validate relational constraints
+    const effectiveMontoTotal = payload.montoTotal ?? Number(existing.montoTotal);
+    const effectiveSaldoPendiente = payload.saldoPendiente ?? Number(existing.saldoPendiente);
+    const effectiveCuotas = payload.cuotas ?? existing.cuotas;
+    const effectiveCuotasPagadas = payload.cuotasPagadas ?? existing.cuotasPagadas;
+
+    if (effectiveSaldoPendiente > effectiveMontoTotal) {
+      return NextResponse.json({ error: "El saldo pendiente no puede ser mayor al monto total" }, { status: 400 });
+    }
+
+    if (effectiveCuotasPagadas > effectiveCuotas) {
+      return NextResponse.json({ error: "Cuotas pagadas no puede ser mayor que las cuotas totales" }, { status: 400 });
     }
 
     const deuda = await prisma.deuda.update({

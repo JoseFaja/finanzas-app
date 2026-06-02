@@ -6,7 +6,7 @@ import { requireUserId } from "@/lib/require-user";
 const updateCuentaSchema = z.object({
   nombre: z.string().min(2).optional(),
   idTipoCuenta: z.number().int().positive().optional(),
-  saldoActual: z.number().finite().optional(),
+  saldoActual: z.number().finite().min(0).optional(),
 });
 
 function parseId(params: { id: string }) {

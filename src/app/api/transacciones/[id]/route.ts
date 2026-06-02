@@ -35,12 +35,19 @@ export async function PUT(
     const resolved = await params;
     const transaccionId = parseId(resolved);
     const body = await req.json();
+    
+    if (!existing) {
+      return NextResponse.json({ error: "Transacción no encontrada" }, { status: 404 });
+    }
     const payload = updateTransaccionSchema.parse(body);
 
     const existing = await prisma.transaccion.findFirst({
-      where: { id: transaccionId, idUsuario: userId },
-      include: {
-        cuenta: { select: { id: true, saldoActual: true } },
+      const nextAmount = payload.monto !== undefined 
+        ? new Prisma.Decimal(payload.monto) 
+        : new Prisma.Decimal(existing.monto.toString()); 
+      if (nextAmount.lt(0)) {
+        throw new Error("INVALID_AMOUNT");
+      }
       },
     });
 
@@ -54,10 +61,15 @@ export async function PUT(
     const nextCuentaId = payload.idCuenta ?? existing.idCuenta;
     const updated = await prisma.$transaction(async (tx) => {
       const nextAmount = payload.monto !== undefined
-        ? new Prisma.Decimal(payload.monto)
-        : new Prisma.Decimal(existing.monto.toString());
-      const nextIsIncome = payload.esIngreso ?? existing.esIngreso;
-      const oldAmount = new Prisma.Decimal(existing.monto.toString());
+        const updatedBalance = currentBalance.sub(oldEffect).add(newEffect);
+        if (updatedBalance.lt(0)) {
+          throw new Error("NEGATIVE_BALANCE");
+        }
+
+        await tx.cuenta.update({
+          where: { id: currentAccount.id },
+          data: { saldoActual: updatedBalance },
+        });
       const oldEffect = existing.esIngreso ? oldAmount : oldAmount.neg();
       const newEffect = nextIsIncome ? nextAmount : nextAmount.neg();
 
@@ -69,10 +81,26 @@ export async function PUT(
 
         if (!currentAccount) {
           throw new Error("INVALID_ACCOUNT");
+        const newCurrentBalance = currentBalance.sub(oldEffect);
+        if (newCurrentBalance.lt(0)) {
+          throw new Error("NEGATIVE_BALANCE");
         }
 
-        const currentBalance = new Prisma.Decimal(currentAccount.saldoActual.toString());
         await tx.cuenta.update({
+          where: { id: currentAccount.id },
+          data: { saldoActual: newCurrentBalance },
+        });
+
+        const targetBalance = new Prisma.Decimal(nextAccount.saldoActual.toString());
+        const newTargetBalance = targetBalance.add(newEffect);
+        if (newTargetBalance.lt(0)) {
+          throw new Error("NEGATIVE_BALANCE");
+        }
+
+        await tx.cuenta.update({
+          where: { id: nextCuentaId },
+          data: { saldoActual: newTargetBalance },
+        });
           where: { id: currentAccount.id },
           data: { saldoActual: currentBalance.sub(oldEffect).add(newEffect) },
         });
@@ -140,6 +168,14 @@ export async function PUT(
         { error: "Cuenta inválida para el usuario" },
         { status: 400 },
       );
+    }
+
+    if (error instanceof Error && error.message === "NEGATIVE_BALANCE") {
+      return NextResponse.json({ error: "La operación dejaría la cuenta con saldo negativo" }, { status: 400 });
+    }
+
+    if (error instanceof Error && error.message === "INVALID_AMOUNT") {
+      return NextResponse.json({ error: "El monto debe ser un número mayor o igual a 0" }, { status: 400 });
     }
 
     if (error instanceof Error && error.message === "INVALID_ID") {
