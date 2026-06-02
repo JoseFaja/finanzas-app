@@ -10,7 +10,7 @@ const updateTransaccionSchema = z.object({
   idMetodoPago: z.number().int().positive().nullable().optional(),
   idFrecuenciaPago: z.number().int().positive().nullable().optional(),
   idDeuda: z.number().int().positive().nullable().optional(),
-  monto: z.number().finite().optional(),
+  monto: z.number().finite().min(0).optional(),
   descripcion: z.string().max(300).nullable().optional(),
   fecha: z.string().datetime().optional(),
   esIngreso: z.boolean().optional(),
@@ -39,9 +39,7 @@ export async function PUT(
 
     const existing = await prisma.transaccion.findFirst({
       where: { id: transaccionId, idUsuario: userId },
-      include: {
-        cuenta: { select: { id: true, saldoActual: true } },
-      },
+      include: { cuenta: { select: { id: true, saldoActual: true } } },
     });
 
     if (!existing) {
@@ -52,10 +50,16 @@ export async function PUT(
     }
 
     const nextCuentaId = payload.idCuenta ?? existing.idCuenta;
+
     const updated = await prisma.$transaction(async (tx) => {
       const nextAmount = payload.monto !== undefined
         ? new Prisma.Decimal(payload.monto)
         : new Prisma.Decimal(existing.monto.toString());
+
+      if (nextAmount.lt(0)) {
+        throw new Error("INVALID_AMOUNT");
+      }
+
       const nextIsIncome = payload.esIngreso ?? existing.esIngreso;
       const oldAmount = new Prisma.Decimal(existing.monto.toString());
       const oldEffect = existing.esIngreso ? oldAmount : oldAmount.neg();
@@ -72,9 +76,15 @@ export async function PUT(
         }
 
         const currentBalance = new Prisma.Decimal(currentAccount.saldoActual.toString());
+        const updatedBalance = currentBalance.sub(oldEffect).add(newEffect);
+
+        if (updatedBalance.lt(0)) {
+          throw new Error("NEGATIVE_BALANCE");
+        }
+
         await tx.cuenta.update({
           where: { id: currentAccount.id },
-          data: { saldoActual: currentBalance.sub(oldEffect).add(newEffect) },
+          data: { saldoActual: updatedBalance },
         });
       } else {
         const currentAccount = await tx.cuenta.findFirst({
@@ -91,15 +101,25 @@ export async function PUT(
         }
 
         const currentBalance = new Prisma.Decimal(currentAccount.saldoActual.toString());
+        const newCurrentBalance = currentBalance.sub(oldEffect);
+        if (newCurrentBalance.lt(0)) {
+          throw new Error("NEGATIVE_BALANCE");
+        }
+
         await tx.cuenta.update({
           where: { id: currentAccount.id },
-          data: { saldoActual: currentBalance.sub(oldEffect) },
+          data: { saldoActual: newCurrentBalance },
         });
 
         const targetBalance = new Prisma.Decimal(nextAccount.saldoActual.toString());
+        const newTargetBalance = targetBalance.add(newEffect);
+        if (newTargetBalance.lt(0)) {
+          throw new Error("NEGATIVE_BALANCE");
+        }
+
         await tx.cuenta.update({
           where: { id: nextCuentaId },
-          data: { saldoActual: targetBalance.add(newEffect) },
+          data: { saldoActual: newTargetBalance },
         });
       }
 
@@ -140,6 +160,14 @@ export async function PUT(
         { error: "Cuenta inválida para el usuario" },
         { status: 400 },
       );
+    }
+
+    if (error instanceof Error && error.message === "NEGATIVE_BALANCE") {
+      return NextResponse.json({ error: "La operación dejaría la cuenta con saldo negativo" }, { status: 400 });
+    }
+
+    if (error instanceof Error && error.message === "INVALID_AMOUNT") {
+      return NextResponse.json({ error: "El monto debe ser un número mayor o igual a 0" }, { status: 400 });
     }
 
     if (error instanceof Error && error.message === "INVALID_ID") {
@@ -185,9 +213,14 @@ export async function DELETE(
       const effect = existing.esIngreso ? amount : amount.neg();
       const balance = new Prisma.Decimal(existing.cuenta.saldoActual.toString());
 
+      const nextBalance = balance.sub(effect);
+      if (nextBalance.lt(0)) {
+        throw new Error("NEGATIVE_BALANCE");
+      }
+
       await tx.cuenta.update({
         where: { id: existing.cuenta.id },
-        data: { saldoActual: balance.sub(effect) },
+        data: { saldoActual: nextBalance },
       });
 
       await tx.transaccion.delete({ where: { id: transaccionId } });

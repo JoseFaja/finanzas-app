@@ -6,7 +6,7 @@ import { requireUserId } from "@/lib/require-user";
 const createCuentaSchema = z.object({
   nombre: z.string().min(2),
   idTipoCuenta: z.number().int().positive(),
-  saldoActual: z.number().finite().default(0),
+  saldoActual: z.number().finite().min(0).default(0),
 });
 
 export async function GET() {

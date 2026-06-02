@@ -5,8 +5,8 @@ import { requireUserId } from "@/lib/require-user";
 
 const createDeudaSchema = z.object({
   idTipoDeuda: z.number().int().positive(),
-  montoTotal: z.number().finite(),
-  saldoPendiente: z.number().finite(),
+  montoTotal: z.number().finite().nonnegative(),
+  saldoPendiente: z.number().finite().nonnegative(),
   tasaIntereses: z.number().finite(),
   cuotas: z.number().int().positive(),
   cuotasPagadas: z.number().int().min(0).default(0),
@@ -41,6 +41,15 @@ export async function POST(req: Request) {
     const userId = await requireUserId();
     const body = await req.json();
     const payload = createDeudaSchema.parse(body);
+
+    // Validaciones extra: saldoPendiente no mayor al monto total y cuotasPagadas no mayor a cuotas
+    if (payload.saldoPendiente > payload.montoTotal) {
+      return NextResponse.json({ error: "El saldo pendiente no puede ser mayor al monto total" }, { status: 400 });
+    }
+
+    if (payload.cuotasPagadas > payload.cuotas) {
+      return NextResponse.json({ error: "Cuotas pagadas no puede ser mayor que las cuotas totales" }, { status: 400 });
+    }
 
     const deuda = await prisma.deuda.create({
       data: {

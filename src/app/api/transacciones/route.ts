@@ -10,7 +10,7 @@ const createTransaccionSchema = z.object({
   idMetodoPago: z.number().int().positive().optional(),
   idFrecuenciaPago: z.number().int().positive().optional(),
   idDeuda: z.number().int().positive().optional(),
-  monto: z.number().finite(),
+  monto: z.number().finite().nonnegative(),
   descripcion: z.string().max(300).optional(),
   fecha: z.string().datetime().optional(),
   esIngreso: z.boolean().default(false),
@@ -60,9 +60,14 @@ export async function POST(req: Request) {
       const signedAmount = payload.esIngreso ? monto : monto.neg();
       const currentBalance = new Prisma.Decimal(cuenta.saldoActual.toString());
 
+      const nextBalance = currentBalance.add(signedAmount);
+      if (nextBalance.lt(0)) {
+        throw new Error("NEGATIVE_BALANCE");
+      }
+
       await tx.cuenta.update({
         where: { id: cuenta.id },
-        data: { saldoActual: currentBalance.add(signedAmount) },
+        data: { saldoActual: nextBalance },
       });
 
       return tx.transaccion.create({
@@ -97,6 +102,10 @@ export async function POST(req: Request) {
         { error: "Cuenta inválida para el usuario" },
         { status: 400 },
       );
+    }
+
+    if (error instanceof Error && error.message === "NEGATIVE_BALANCE") {
+      return NextResponse.json({ error: "La transacción dejaría la cuenta con saldo negativo" }, { status: 400 });
     }
 
     if (error instanceof z.ZodError) {

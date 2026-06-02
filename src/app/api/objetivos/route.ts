@@ -6,7 +6,7 @@ import { requireUserId } from "@/lib/require-user";
 const createObjetivoSchema = z.object({
   nombreObjetivo: z.string().min(2).max(200),
   idTipoObjetivo: z.number().int().positive(),
-  montoMeta: z.number().finite(),
+  montoMeta: z.number().finite().nonnegative(),
   fechaLimite: z.string().datetime(),
   idPrioridad: z.number().int().positive().optional(),
   idEstado: z.number().int().positive().optional(),
