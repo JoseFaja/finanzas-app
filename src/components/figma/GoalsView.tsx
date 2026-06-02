@@ -328,6 +328,7 @@ export function GoalsView() {
       idPrioridad: priorities[0] ? String(priorities[0].id) : "",
       idCuenta: accounts[0] ? String(accounts[0].id) : "",
     });
+    setError(null);
     setIsDialogOpen(true);
   };
 
@@ -341,47 +342,65 @@ export function GoalsView() {
       idPrioridad: goal.idPrioridad ? String(goal.idPrioridad) : "",
       idCuenta: goal.idCuenta ? String(goal.idCuenta) : "",
     });
+    setError(null);
     setIsDialogOpen(true);
   };
 
   const handleAddGoal = async () => {
-    const payload = {
-      nombreObjetivo: newGoal.nombreObjetivo,
-      idTipoObjetivo: Number(newGoal.idTipoObjetivo),
-      montoMeta: Number(newGoal.montoMeta),
-      fechaLimite: new Date(newGoal.fechaLimite).toISOString(),
-      idPrioridad: newGoal.idPrioridad ? Number(newGoal.idPrioridad) : undefined,
-      idCuenta: newGoal.idCuenta ? Number(newGoal.idCuenta) : undefined,
-    };
+    try {
+      setError(null);
+      setLoading(true);
 
-    if (editingGoal) {
-      await fetchJson<GoalRecord>(`/api/objetivos/${editingGoal.id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
+      const payload = {
+        nombreObjetivo: newGoal.nombreObjetivo,
+        idTipoObjetivo: Number(newGoal.idTipoObjetivo),
+        montoMeta: Number(newGoal.montoMeta),
+        fechaLimite: new Date(newGoal.fechaLimite).toISOString(),
+        idPrioridad: newGoal.idPrioridad ? Number(newGoal.idPrioridad) : undefined,
+        idCuenta: newGoal.idCuenta ? Number(newGoal.idCuenta) : undefined,
+      };
+
+      if (editingGoal) {
+        await fetchJson<GoalRecord>(`/api/objetivos/${editingGoal.id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson<GoalRecord>("/api/objetivos", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      setNewGoal({
+        nombreObjetivo: "",
+        idTipoObjetivo: goalTypes[0] ? String(goalTypes[0].id) : "",
+        montoMeta: "0",
+        fechaLimite: "",
+        idPrioridad: priorities[0] ? String(priorities[0].id) : "",
+        idCuenta: accounts[0] ? String(accounts[0].id) : "",
       });
-    } else {
-      await fetchJson<GoalRecord>("/api/objetivos", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      setEditingGoal(null);
+      setIsDialogOpen(false);
+      setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
     }
-
-    setNewGoal({
-      nombreObjetivo: "",
-      idTipoObjetivo: goalTypes[0] ? String(goalTypes[0].id) : "",
-      montoMeta: "0",
-      fechaLimite: "",
-      idPrioridad: priorities[0] ? String(priorities[0].id) : "",
-      idCuenta: accounts[0] ? String(accounts[0].id) : "",
-    });
-    setEditingGoal(null);
-    setIsDialogOpen(false);
-    setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
   };
 
   const handleDeleteGoal = async (goalId: number) => {
-    await fetchJson(`/api/objetivos/${goalId}`, { method: "DELETE" });
-    setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
+    try {
+      setError(null);
+      setLoading(true);
+      await fetchJson(`/api/objetivos/${goalId}`, { method: "DELETE" });
+      setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const formatCurrency = (amount: number) =>
@@ -773,6 +792,7 @@ export function GoalsView() {
           <DialogHeader>
             <DialogTitle>{editingGoal ? "Editar objetivo financiero" : "Crear objetivo financiero"}</DialogTitle>
           </DialogHeader>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="goal-name">Nombre del objetivo</Label>
