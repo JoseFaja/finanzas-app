@@ -437,7 +437,7 @@ export function GoalsView() {
           <CardContent className="py-12 text-center">
             <Target className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground">
-              No tienes objetivos financieros. ┬íCrea uno para comenzar!
+              No tienes objetivos financieros. ¡Crea uno para comenzar!
             </p>
           </CardContent>
         </Card>
@@ -831,7 +831,7 @@ export function GoalsView() {
               />
             </div>
             <div>
-              <Label htmlFor="goal-deadline">Fecha l├¡mite</Label>
+              <Label htmlFor="goal-deadline">Fecha límite</Label>
               <Input
                 id="goal-deadline"
                 type="date"
