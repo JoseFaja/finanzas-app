@@ -121,17 +121,30 @@ async function resolveRecommendations(goalId: number) {
 }
 
 async function getActiveStateId() {
-  const activeState =
-    (await prisma.estado.findFirst({
-      where: { nombre: { equals: "Activo", mode: "insensitive" } },
-      select: { id: true },
-    })) ??
-    (await prisma.estado.findFirst({
-      orderBy: { id: "asc" },
-      select: { id: true },
-    }));
+  const activeState = await prisma.estado.findFirst({
+    where: { nombre: { equals: "Activo", mode: "insensitive" } },
+    select: { id: true },
+  });
 
-  return activeState?.id ?? null;
+  if (activeState) {
+    return activeState.id;
+  }
+
+  const firstState = await prisma.estado.findFirst({
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+
+  if (firstState) {
+    return firstState.id;
+  }
+
+  const created = await prisma.estado.create({
+    data: { nombre: "Activo" },
+    select: { id: true },
+  });
+
+  return created.id;
 }
 
 async function getRiskLevelId(planKey: GoalPlanVariant["key"]) {
