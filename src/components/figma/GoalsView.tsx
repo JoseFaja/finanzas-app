@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles, Plus } from "lucide-react";
+import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles, Plus, RefreshCw } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -338,6 +338,21 @@ export function GoalsView() {
     }
   };
 
+  const handleRegeneratePlan = async () => {
+    if (!selectedGoal) {
+      return;
+    }
+
+    try {
+      await loadRecommendations(selectedGoal.id, selectedStrategyKey, true);
+      setToastMessage("Plan regenerado con los datos actuales del objetivo");
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch {
+      setToastMessage("No se pudo regenerar el plan");
+      setTimeout(() => setToastMessage(null), 3000);
+    }
+  };
+
   const openCreateDialog = () => {
     setEditingGoal(null);
     setNewGoal({
@@ -380,6 +395,7 @@ export function GoalsView() {
     try {
       setError(null);
       setLoading(true);
+      const editingGoalId = editingGoal?.id ?? null;
 
       const payload = {
         nombreObjetivo: newGoal.nombreObjetivo,
@@ -412,7 +428,12 @@ export function GoalsView() {
       });
       setEditingGoal(null);
       setIsDialogOpen(false);
-      setGoals(await fetchJson<GoalRecord[]>("/api/objetivos"));
+      const refreshedGoals = await fetchJson<GoalRecord[]>("/api/objetivos");
+      setGoals(refreshedGoals);
+
+      if (editingGoalId && selectedGoalId === editingGoalId) {
+        void loadRecommendations(editingGoalId, selectedStrategyKey, false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -660,6 +681,15 @@ export function GoalsView() {
                       {planData?.aiUsed ? "IA activa" : "Modo inteligente"}
                     </Badge>
                     <Badge variant="secondary">Seleccionada: {getStrategyLabel(selectedStrategyKey)}</Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleRegeneratePlan()}
+                      disabled={planLoading || !planData}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Regenerar plan
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
