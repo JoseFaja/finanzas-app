@@ -518,7 +518,7 @@ function buildScoreFromMonthlyData(monthlyData: ScoreFlowPoint[], debtPressure: 
 
 export async function buildGoalRecommendationContext(userId: number, goalId: number) {
   const { prisma } = await import("./prisma");
-  const [goal, cuentas, deudas, transacciones] = await Promise.all([
+  const [goal, cuentas, deudas, transacciones, goalContributions] = await Promise.all([
     prisma.objetivoFinanciero.findFirst({
       where: { id: goalId, idUsuario: userId },
       include: {
@@ -537,6 +537,10 @@ export async function buildGoalRecommendationContext(userId: number, goalId: num
       where: { idUsuario: userId },
       select: { monto: true, fecha: true, esIngreso: true, idDeuda: true },
       orderBy: { fecha: "desc" },
+    }),
+    prisma.transaccion.aggregate({
+      where: { idUsuario: userId, idObjetivo: goalId, esIngreso: false },
+      _sum: { monto: true },
     }),
   ]);
 
@@ -580,7 +584,7 @@ export async function buildGoalRecommendationContext(userId: number, goalId: num
   const monthlyDisposableIncome = Math.max(monthlyIncome - monthlyExpenses - monthlyDebtCommitment, 0);
   const debtPressure = monthlyIncome > 0 ? totalDebt / Math.max(monthlyIncome * 6, 1) : totalDebt > 0 ? 1 : 0;
 
-  const currentAmount = goal.cuenta ? toNumber(goal.cuenta.saldoActual) : 0;
+  const currentAmount = toNumber(goalContributions._sum.monto);
   const remainingAmount = Math.max(toNumber(goal.montoMeta) - currentAmount, 0);
   const monthsLeft = monthsBetween(new Date(), new Date(goal.fechaLimite));
 
@@ -593,7 +597,7 @@ export async function buildGoalRecommendationContext(userId: number, goalId: num
     remainingAmount,
     monthsLeft,
     accountName: goal.cuenta?.nombre ?? null,
-    accountBalance: currentAmount,
+    accountBalance: goal.cuenta ? toNumber(goal.cuenta.saldoActual) : 0,
     monthlyIncome,
     monthlyExpenses,
     monthlyDebtCommitment,

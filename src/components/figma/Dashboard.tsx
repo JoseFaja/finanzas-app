@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 
+type ViewId = "accounts" | "transactions" | "debts" | "goals" | "score";
+
 interface CatalogItem {
   id: number;
   nombre: string;
@@ -52,11 +54,54 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
+const menuItems: Array<{ id: ViewId; label: string; icon: typeof Wallet }> = [
+  { id: "accounts", label: "Cuentas", icon: Wallet },
+  { id: "transactions", label: "Transacciones", icon: Receipt },
+  { id: "debts", label: "Deudas", icon: CreditCard },
+  { id: "goals", label: "Objetivos", icon: Target },
+  { id: "score", label: "Score", icon: TrendingUp },
+];
+
+function Sidebar({
+  currentView,
+  onViewChange,
+}: {
+  currentView: ViewId;
+  onViewChange: (view: ViewId) => void;
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b p-6">
+        <h1 className="text-2xl">FinanceApp</h1>
+        <p className="text-sm text-muted-foreground">Gestion Financiera Personal</p>
+      </div>
+      <nav className="flex-1 p-4">
+        <ul className="space-y-2">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <li key={item.id}>
+                <Button
+                  variant={currentView === item.id ? "default" : "ghost"}
+                  className="w-full justify-start"
+                  onClick={() => onViewChange(item.id)}
+                >
+                  <Icon className="mr-3 h-5 w-5" />
+                  {item.label}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </div>
+  );
+}
+
 export function Dashboard({ onLogout }: DashboardProps) {
   const { data: session } = useSession();
-  const [currentView, setCurrentView] = useState<
-    "accounts" | "transactions" | "debts" | "goals" | "score"
-  >("accounts");
+  const [currentView, setCurrentView] = useState<ViewId>("accounts");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -87,9 +132,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
           return;
         }
 
-        setProfileError(
-          error instanceof Error ? error.message : "No se pudo cargar el perfil",
-        );
+        setProfileError(error instanceof Error ? error.message : "No se pudo cargar el perfil");
       } finally {
         if (active) {
           setProfileLoading(false);
@@ -103,14 +146,6 @@ export function Dashboard({ onLogout }: DashboardProps) {
       active = false;
     };
   }, []);
-
-  const menuItems = [
-    { id: "accounts", label: "Cuentas", icon: Wallet },
-    { id: "transactions", label: "Transacciones", icon: Receipt },
-    { id: "debts", label: "Deudas", icon: CreditCard },
-    { id: "goals", label: "Objetivos", icon: Target },
-    { id: "score", label: "Score", icon: TrendingUp },
-  ];
 
   const handleSaveProfile = async (profile: UserProfile) => {
     const updated = await fetchJson<UserProfile>("/api/perfil", {
@@ -157,35 +192,6 @@ export function Dashboard({ onLogout }: DashboardProps) {
       .map((part) => part[0]?.toUpperCase())
       .join("") || "U";
 
-  const Sidebar = () => (
-    <div className="flex h-full flex-col">
-      <div className="border-b p-6">
-        <h1 className="text-2xl">FinanceApp</h1>
-        <p className="text-sm text-muted-foreground">Gestión Financiera Personal</p>
-      </div>
-      <nav className="flex-1 p-4">
-        <ul className="space-y-2">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <li key={item.id}>
-                <Button
-                  variant={currentView === item.id ? "default" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => setCurrentView(item.id as any)}
-                >
-                  <Icon className="mr-3 h-5 w-5" />
-                  {item.label}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-    </div>
-  );
-
   return (
     <div className="flex h-screen flex-col bg-background md:flex-row">
       <div className="flex items-center justify-between border-b p-4 md:hidden">
@@ -196,7 +202,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
             </button>
           </SheetTrigger>
           <SheetContent side="left" className="w-64 p-0">
-            <Sidebar />
+            <Sidebar currentView={currentView} onViewChange={setCurrentView} />
           </SheetContent>
         </Sheet>
         <h1 className="text-xl">FinanceApp</h1>
@@ -218,14 +224,14 @@ export function Dashboard({ onLogout }: DashboardProps) {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onLogout}>
               <LogOut className="mr-2 h-4 w-4" />
-              Cerrar Sesión
+              Cerrar Sesion
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
       <aside className="hidden w-64 border-r md:block">
-        <Sidebar />
+        <Sidebar currentView={currentView} onViewChange={setCurrentView} />
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
@@ -257,7 +263,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
-                Cerrar Sesión
+                Cerrar Sesion
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

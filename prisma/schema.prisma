@@ -173,11 +173,15 @@ model Transaccion {
   idDeuda Int?
   deuda   Deuda? @relation(fields: [idDeuda], references: [id])
 
+  idObjetivo Int?
+  objetivo   ObjetivoFinanciero? @relation(fields: [idObjetivo], references: [id])
+
   idFrecuenciaPago Int?
   frecuenciaPago   FrecuenciaPago? @relation(fields: [idFrecuenciaPago], references: [id])
 
   @@index([idUsuario])
   @@index([idCuenta])
+  @@index([idObjetivo])
 }
 
 model ObjetivoFinanciero {
@@ -202,6 +206,8 @@ model ObjetivoFinanciero {
 
   idCuenta Int?
   cuenta   Cuenta? @relation(fields: [idCuenta], references: [id])
+
+  transacciones Transaccion[]
 
   @@index([idUsuario])
 }

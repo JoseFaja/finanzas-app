@@ -39,6 +39,10 @@ interface TransactionRecord {
   categoria: CatalogItem | null;
   metodoPago: CatalogItem | null;
   deuda: DebtItem | null;
+  objetivo: {
+    id: number;
+    nombreObjetivo: string;
+  } | null;
 }
 
 interface TransactionFormState {
@@ -328,6 +332,7 @@ export function TransactionsView() {
                         transaction.cuenta?.nombre,
                         transaction.metodoPago?.nombre,
                         transaction.deuda ? `Abono: ${transaction.deuda.tipoDeuda.nombre}` : null,
+                        transaction.objetivo ? `Objetivo: ${transaction.objetivo.nombreObjetivo}` : null,
                       ]
                         .filter(Boolean)
                         .join(" - ")}

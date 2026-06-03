@@ -11,6 +11,7 @@ const updateTransaccionSchema = z.object({
   idMetodoPago: z.number().int().positive().nullable().optional(),
   idFrecuenciaPago: z.number().int().positive().nullable().optional(),
   idDeuda: z.number().int().positive().nullable().optional(),
+  idObjetivo: z.number().int().positive().nullable().optional(),
   monto: z.number().finite().min(0).optional(),
   descripcion: z.string().max(300).nullable().optional(),
   fecha: z.string().datetime().optional(),
@@ -25,6 +26,35 @@ function parseId(params: { id: string }) {
   }
 
   return transaccionId;
+}
+
+async function validateObjectiveContribution(
+  tx: Prisma.TransactionClient,
+  userId: number,
+  objectiveId: number | null | undefined,
+  accountId: number,
+  isIncome: boolean,
+) {
+  if (!objectiveId) {
+    return;
+  }
+
+  if (isIncome) {
+    throw new Error("OBJECTIVE_PAYMENT_MUST_BE_EXPENSE");
+  }
+
+  const objetivo = await tx.objetivoFinanciero.findFirst({
+    where: { id: objectiveId, idUsuario: userId },
+    select: { id: true, idCuenta: true },
+  });
+
+  if (!objetivo) {
+    throw new Error("INVALID_OBJECTIVE");
+  }
+
+  if (objetivo.idCuenta && objetivo.idCuenta !== accountId) {
+    throw new Error("OBJECTIVE_ACCOUNT_MISMATCH");
+  }
 }
 
 async function changeDebtBalance(
@@ -112,10 +142,24 @@ export async function PUT(
 
       const nextIsIncome = payload.esIngreso ?? existing.esIngreso;
       const nextDebtId = payload.idDeuda !== undefined ? payload.idDeuda : existing.idDeuda;
+      const nextObjectiveId =
+        payload.idObjetivo !== undefined ? payload.idObjetivo : existing.idObjetivo;
+
+      if (nextDebtId && nextObjectiveId) {
+        throw new Error("TRANSACTION_TARGET_CONFLICT");
+      }
 
       if (nextDebtId && nextIsIncome) {
         throw new Error("DEBT_PAYMENT_MUST_BE_EXPENSE");
       }
+
+      await validateObjectiveContribution(
+        tx,
+        userId,
+        nextObjectiveId,
+        nextCuentaId,
+        nextIsIncome,
+      );
 
       const oldAmount = new Prisma.Decimal(existing.monto.toString());
       const oldEffect = existing.esIngreso ? oldAmount : oldAmount.neg();
@@ -204,11 +248,13 @@ export async function PUT(
               ? payload.idFrecuenciaPago
               : undefined,
           idDeuda: payload.idDeuda !== undefined ? payload.idDeuda : undefined,
+          idObjetivo: payload.idObjetivo !== undefined ? payload.idObjetivo : undefined,
         },
         include: {
           cuenta: { select: { id: true, nombre: true } },
           categoria: { select: { id: true, descripcion: true } },
           metodoPago: { select: { id: true, nombre: true } },
+          objetivo: { select: { id: true, nombreObjetivo: true } },
           deuda: {
             select: {
               id: true,
@@ -271,6 +317,34 @@ export async function PUT(
     if (error instanceof Error && error.message === "DEBT_BALANCE_EXCEEDS_TOTAL") {
       return NextResponse.json(
         { error: "La deuda no puede quedar con saldo mayor al monto total" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "TRANSACTION_TARGET_CONFLICT") {
+      return NextResponse.json(
+        { error: "La transaccion no puede estar asociada a deuda y objetivo al mismo tiempo" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "INVALID_OBJECTIVE") {
+      return NextResponse.json(
+        { error: "Objetivo invalido para el usuario" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "OBJECTIVE_PAYMENT_MUST_BE_EXPENSE") {
+      return NextResponse.json(
+        { error: "Los abonos a objetivo deben registrarse como gasto" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "OBJECTIVE_ACCOUNT_MISMATCH") {
+      return NextResponse.json(
+        { error: "La cuenta no coincide con la cuenta asociada al objetivo" },
         { status: 400 },
       );
     }
