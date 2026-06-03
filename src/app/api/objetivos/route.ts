@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
+import { getLatestSavedPlanByGoal } from "@/lib/saved-goal-plans";
 
 const createObjetivoSchema = z.object({
   nombreObjetivo: z.string().min(2).max(200),
@@ -17,7 +18,7 @@ export async function GET() {
   try {
     const userId = await requireUserId();
 
-    const [objetivos, aportes] = await Promise.all([
+    const [objetivos, aportes, latestPlanByGoal] = await Promise.all([
       prisma.objetivoFinanciero.findMany({
         where: { idUsuario: userId },
         include: {
@@ -33,6 +34,7 @@ export async function GET() {
         where: { idUsuario: userId, idObjetivo: { not: null }, esIngreso: false },
         _sum: { monto: true },
       }),
+      getLatestSavedPlanByGoal(userId),
     ]);
 
     const aportesPorObjetivo = new Map(
@@ -43,6 +45,7 @@ export async function GET() {
       objetivos.map((objetivo) => ({
         ...objetivo,
         montoAhorrado: aportesPorObjetivo.get(objetivo.id) ?? 0,
+        planGuardado: latestPlanByGoal.get(objetivo.id) ?? null,
       })),
     );
   } catch (error) {
@@ -103,7 +106,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ ...objetivo, montoAhorrado: 0 }, { status: 201 });
+    return NextResponse.json({ ...objetivo, montoAhorrado: 0, planGuardado: null }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });

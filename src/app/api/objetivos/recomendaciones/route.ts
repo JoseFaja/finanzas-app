@@ -7,6 +7,11 @@ import {
 } from "@/lib/financial-insights";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/require-user";
+import {
+  getSavedPlansForGoal,
+  planKeyFromPriorityName,
+  type SavedPlanSummary,
+} from "@/lib/saved-goal-plans";
 
 const recommendationSchema = z.object({
   goalId: z.number().int().positive(),
@@ -15,17 +20,6 @@ const recommendationSchema = z.object({
   monthlyContribution: z.number().positive().optional(),
   horizonMonths: z.number().int().positive().optional(),
 });
-
-interface SavedPlanSummary {
-  id: number;
-  fechaGeneracion: string;
-  ahorroSugerido: number;
-  ingresoMensualEstimado: number;
-  gastoMensualEstimado: number;
-  nivelRiesgo: string;
-  planElegido: string;
-  planElegidoKey: "high" | "medium" | "low";
-}
 
 function toNumber(value: unknown) {
   return Number(value ?? 0);
@@ -37,18 +31,6 @@ function truncate(value: string, maxLength: number) {
   }
 
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
-}
-
-function strategyLabel(key: "high" | "medium" | "low") {
-  if (key === "high") {
-    return "Alto impacto";
-  }
-
-  if (key === "medium") {
-    return "Impacto medio";
-  }
-
-  return "Bajo impacto";
 }
 
 function riskLabel(key: "high" | "medium" | "low") {
@@ -73,20 +55,6 @@ function priorityNameForPlanKey(key: "high" | "medium" | "low") {
   }
 
   return "Bajo impacto";
-}
-
-function planKeyFromPriorityName(value: string | null | undefined): "high" | "medium" | "low" {
-  const normalized = value?.trim().toLowerCase() ?? "";
-
-  if (normalized.includes("alto") || normalized.includes("alta") || normalized.includes("high")) {
-    return "high";
-  }
-
-  if (normalized.includes("bajo") || normalized.includes("baja") || normalized.includes("low")) {
-    return "low";
-  }
-
-  return "medium";
 }
 
 async function hasEstrategiaPlanTipoColumn() {
@@ -123,12 +91,15 @@ async function resolveRecommendations(goalId: number) {
     return NextResponse.json({ error: "Objetivo no encontrado" }, { status: 404 });
   }
 
-  const historialGuardado = await getSavedPlans(userId);
+  const historialGuardado = await getSavedPlansForGoal(userId, goalId);
+  const planGuardado = historialGuardado[0] ?? null;
 
   return NextResponse.json({
     ...context,
+    selectedPlanKey: planGuardado?.planElegidoKey ?? "medium",
     historialGuardado,
-    planGuardado: historialGuardado[0] ?? null,
+    planGuardado,
+    planAnterior: historialGuardado[1] ?? null,
   });
 }
 
@@ -199,37 +170,6 @@ async function getPriorityId(planKey: GoalPlanVariant["key"]) {
   return created.id;
 }
 
-async function getSavedPlans(userId: number): Promise<SavedPlanSummary[]> {
-  const plans = await prisma.planFinanciero.findMany({
-    where: { idUsuario: userId },
-    include: {
-      nivelRiesgo: { select: { nombre: true } },
-      estrategias: {
-        select: { prioridad: { select: { nombre: true } } },
-        orderBy: { id: "asc" },
-      },
-    },
-    orderBy: { fechaGeneracion: "desc" },
-    take: 3,
-  });
-
-  return plans.map((plan) => {
-    const planKey = planKeyFromPriorityName(plan.estrategias[0]?.prioridad?.nombre);
-
-    return {
-      id: plan.id,
-      fechaGeneracion: plan.fechaGeneracion.toISOString(),
-      ahorroSugerido: toNumber(plan.ahorroSugerido),
-      ingresoMensualEstimado: toNumber(plan.ingresoMensualEstimado),
-      gastoMensualEstimado: toNumber(plan.gastoMensualEstimado),
-      nivelRiesgo: plan.nivelRiesgo?.nombre ?? riskLabel(planKey),
-      planElegido: strategyLabel(planKey),
-      planElegidoKey: planKey,
-      // aiAjustado intentionally not exposed anymore
-    };
-  });
-}
-
 async function persistRecommendationPlan(
   userId: number,
   context: NonNullable<Awaited<ReturnType<typeof buildGoalRecommendationContext>>>,
@@ -275,6 +215,7 @@ async function persistRecommendationPlan(
     const plan = await tx.planFinanciero.create({
       data: {
         idUsuario: userId,
+        idObjetivo: context.goal.id,
         ingresoMensualEstimado: new Prisma.Decimal(context.goal.monthlyIncome),
         gastoMensualEstimado: new Prisma.Decimal(context.goal.monthlyExpenses + context.goal.monthlyDebtCommitment),
         ahorroSugerido: new Prisma.Decimal(selectedPlan.monthlyContribution),
@@ -317,12 +258,18 @@ async function persistRecommendationPlan(
 
   return {
     id: savedPlan.id,
+    idObjetivo: savedPlan.idObjetivo,
     fechaGeneracion: savedPlan.fechaGeneracion.toISOString(),
     ahorroSugerido: toNumber(savedPlan.ahorroSugerido),
     ingresoMensualEstimado: toNumber(savedPlan.ingresoMensualEstimado),
     gastoMensualEstimado: toNumber(savedPlan.gastoMensualEstimado),
     nivelRiesgo: savedPlan.nivelRiesgo?.nombre ?? riskLabel(selectedPlan.key),
-    planElegido: strategyLabel(savedPlanKey),
+    planElegido:
+      savedPlanKey === "high"
+        ? "Alto impacto"
+        : savedPlanKey === "medium"
+          ? "Impacto medio"
+          : "Bajo impacto",
     planElegidoKey: savedPlanKey,
   } satisfies SavedPlanSummary;
 }
@@ -369,14 +316,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const historialGuardado = await getSavedPlans(userId);
+    const historialGuardado = await getSavedPlansForGoal(userId, payload.goalId);
+    const latestPlan = historialGuardado[0] ?? null;
 
     return NextResponse.json({
       ...context,
-      planGuardado,
+      planGuardado: planGuardado ?? latestPlan,
       historialGuardado,
       planAnterior: historialGuardado[1] ?? null,
-      selectedPlanKey: planGuardado?.planElegidoKey ?? payload.selectedPlanKey,
+      selectedPlanKey: (planGuardado ?? latestPlan)?.planElegidoKey ?? payload.selectedPlanKey,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {

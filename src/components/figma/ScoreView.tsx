@@ -45,6 +45,8 @@ interface ScoreResponse {
     capacidadAhorro: number;
     nivelRiesgo: string | null;
   }>;
+  historialPersistidoLimite: number;
+  historialPersistidoMostrado: number;
 }
 
 export function ScoreView() {
@@ -98,6 +100,8 @@ export function ScoreView() {
   const alerts = scoreData?.alertas ?? [];
   const trend = scoreData?.tendencia;
   const persistedHistory = scoreData?.historialPersistido ?? [];
+  const persistedHistoryLimit = scoreData?.historialPersistidoLimite ?? 60;
+  const persistedHistoryShown = scoreData?.historialPersistidoMostrado ?? 12;
 
   const getScoreRating = (score: number) => {
     if (score >= 750) return { label: "Excelente", color: "bg-green-600" };
@@ -295,7 +299,9 @@ export function ScoreView() {
         <Card>
           <CardHeader>
             <CardTitle>Historial guardado</CardTitle>
-            <CardDescription>Últimos cálculos almacenados en ScoreFinanciero</CardDescription>
+            <CardDescription>
+              Últimos {persistedHistoryShown} cálculos. Se conservan máximo {persistedHistoryLimit} por usuario.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
