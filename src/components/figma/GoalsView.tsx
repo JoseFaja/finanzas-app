@@ -6,12 +6,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles } from "lucide-react";
+import { Target, TrendingUp, Zap, Clock, Pencil, Trash2, Sparkles, Plus } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { fetchJson } from "./figma-api";
 import type { GoalPlanVariant } from "../../lib/financial-insights";
+import { calculateGoalProgress } from "@/lib/goal-progress";
 
 const planLabelByKey: Record<GoalPlanVariant["key"], string> = {
   high: "Alto impacto",
@@ -38,6 +39,7 @@ interface GoalRecord {
   idTipoObjetivo: number;
   idPrioridad: number | null;
   idCuenta: number | null;
+  montoAhorrado: number;
   tipoObjetivo: CatalogItem;
   prioridad: CatalogItem | null;
   cuenta: CatalogItem | null;
@@ -132,7 +134,9 @@ export function GoalsView() {
   const [priorities, setPriorities] = useState<CatalogItem[]>([]);
   const [selectedGoalId, setSelectedGoalId] = useState<number | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isContributionDialogOpen, setIsContributionDialogOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<GoalRecord | null>(null);
+  const [contributionGoal, setContributionGoal] = useState<GoalRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -156,16 +160,17 @@ export function GoalsView() {
     idPrioridad: "",
     idCuenta: "",
   });
+  const [newContribution, setNewContribution] = useState({
+    amount: "0",
+    account: "",
+  });
 
   const selectedGoal = useMemo(
     () => goals.find((goal) => goal.id === selectedGoalId) ?? goals[0] ?? null,
     [goals, selectedGoalId],
   );
 
-  const getCurrentAmount = (goal: GoalRecord) => {
-    const linkedAccount = accounts.find((account) => account.id === goal.idCuenta);
-    return Number(linkedAccount?.saldoActual ?? 0);
-  };
+  const getCurrentAmount = (goal: GoalRecord) => Number(goal.montoAhorrado ?? 0);
 
   const loadRecommendations = useCallback(
     async (
@@ -332,6 +337,16 @@ export function GoalsView() {
     setIsDialogOpen(true);
   };
 
+  const openContributionDialog = (goal: GoalRecord) => {
+    setContributionGoal(goal);
+    setNewContribution({
+      amount: "0",
+      account: goal.idCuenta ? String(goal.idCuenta) : accounts[0] ? String(accounts[0].id) : "",
+    });
+    setError(null);
+    setIsContributionDialogOpen(true);
+  };
+
   const handleAddGoal = async () => {
     try {
       setError(null);
@@ -389,6 +404,51 @@ export function GoalsView() {
     }
   };
 
+  const handleAddContribution = async () => {
+    if (!contributionGoal) {
+      return;
+    }
+
+    try {
+      setError(null);
+      setLoading(true);
+
+      const amount = Number(newContribution.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error("El abono debe ser mayor a 0");
+      }
+
+      await fetchJson("/api/transacciones", {
+        method: "POST",
+        body: JSON.stringify({
+          idCuenta: Number(newContribution.account),
+          idObjetivo: contributionGoal.id,
+          monto: amount,
+          descripcion: `Abono a objetivo: ${contributionGoal.nombreObjetivo}`,
+          esIngreso: false,
+        }),
+      });
+
+      const [refreshedGoals, refreshedAccounts] = await Promise.all([
+        fetchJson<GoalRecord[]>("/api/objetivos"),
+        fetchJson<AccountItem[]>("/api/cuentas"),
+      ]);
+
+      setGoals(refreshedGoals);
+      setAccounts(refreshedAccounts);
+      setIsContributionDialogOpen(false);
+      setContributionGoal(null);
+
+      if (selectedGoalId === contributionGoal.id) {
+        void loadRecommendations(contributionGoal.id, selectedStrategyKey, false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-CO", {
       style: "currency",
@@ -423,7 +483,7 @@ export function GoalsView() {
           <CardContent className="py-12 text-center">
             <Target className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground">
-              No tienes objetivos financieros. ┬íCrea uno para comenzar!
+              No tienes objetivos financieros. Crea uno para comenzar.
             </p>
           </CardContent>
         </Card>
@@ -432,9 +492,7 @@ export function GoalsView() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {goals.map((goal) => {
               const goalCurrentAmount = getCurrentAmount(goal);
-              const progress = Number(goal.montoMeta) > 0
-                ? (goalCurrentAmount / Number(goal.montoMeta)) * 100
-                : 0;
+              const progress = calculateGoalProgress(goal);
               const savedPlan = planData?.goal?.id === goal.id ? planData.planGuardado : null;
 
               return (
@@ -473,6 +531,16 @@ export function GoalsView() {
                             Editar plan
                           </Button>
                         ) : null}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openContributionDialog(goal);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -520,6 +588,10 @@ export function GoalsView() {
                         />
                       </div>
                       <div className="grid gap-2 text-sm">
+                        <div>
+                          <p className="text-muted-foreground">Abonado</p>
+                          <p>{formatCurrency(goalCurrentAmount)}</p>
+                        </div>
                         <div>
                           <p className="text-muted-foreground">Objetivo</p>
                           <p>{formatCurrency(Number(goal.montoMeta))}</p>
@@ -817,7 +889,7 @@ export function GoalsView() {
               />
             </div>
             <div>
-              <Label htmlFor="goal-deadline">Fecha l├¡mite</Label>
+              <Label htmlFor="goal-deadline">Fecha limite</Label>
               <Input
                 id="goal-deadline"
                 type="date"
@@ -863,6 +935,57 @@ export function GoalsView() {
             </div>
             <Button onClick={() => void handleAddGoal()} className="w-full">
               {editingGoal ? "Guardar cambios" : "Crear objetivo"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isContributionDialogOpen} onOpenChange={setIsContributionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Abonar a objetivo</DialogTitle>
+          </DialogHeader>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Objetivo</Label>
+              <p className="text-sm text-muted-foreground">
+                {contributionGoal?.nombreObjetivo ?? "Sin objetivo seleccionado"}
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="contribution-account">Cuenta</Label>
+              <Select
+                value={newContribution.account}
+                onValueChange={(value) =>
+                  setNewContribution((current) => ({ ...current, account: value }))
+                }
+              >
+                <SelectTrigger id="contribution-account">
+                  <SelectValue placeholder="Selecciona una cuenta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={String(account.id)}>
+                      {account.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="contribution-amount">Monto del abono</Label>
+              <Input
+                id="contribution-amount"
+                type="number"
+                min="1"
+                value={newContribution.amount}
+                onChange={(event) =>
+                  setNewContribution((current) => ({ ...current, amount: event.target.value }))
+                }
+              />
+            </div>
+            <Button onClick={() => void handleAddContribution()} className="w-full">
+              Registrar abono
             </Button>
           </div>
         </DialogContent>

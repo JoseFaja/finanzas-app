@@ -17,18 +17,34 @@ export async function GET() {
   try {
     const userId = await requireUserId();
 
-    const objetivos = await prisma.objetivoFinanciero.findMany({
-      where: { idUsuario: userId },
-      include: {
-        tipoObjetivo: { select: { id: true, nombre: true } },
-        prioridad: { select: { id: true, nombre: true } },
-        estado: { select: { id: true, nombre: true } },
-        cuenta: { select: { id: true, nombre: true } },
-      },
-      orderBy: { id: "desc" },
-    });
+    const [objetivos, aportes] = await Promise.all([
+      prisma.objetivoFinanciero.findMany({
+        where: { idUsuario: userId },
+        include: {
+          tipoObjetivo: { select: { id: true, nombre: true } },
+          prioridad: { select: { id: true, nombre: true } },
+          estado: { select: { id: true, nombre: true } },
+          cuenta: { select: { id: true, nombre: true } },
+        },
+        orderBy: { id: "desc" },
+      }),
+      prisma.transaccion.groupBy({
+        by: ["idObjetivo"],
+        where: { idUsuario: userId, idObjetivo: { not: null }, esIngreso: false },
+        _sum: { monto: true },
+      }),
+    ]);
 
-    return NextResponse.json(objetivos);
+    const aportesPorObjetivo = new Map(
+      aportes.map((aporte) => [aporte.idObjetivo, Number(aporte._sum.monto ?? 0)]),
+    );
+
+    return NextResponse.json(
+      objetivos.map((objetivo) => ({
+        ...objetivo,
+        montoAhorrado: aportesPorObjetivo.get(objetivo.id) ?? 0,
+      })),
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -87,7 +103,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json(objetivo, { status: 201 });
+    return NextResponse.json({ ...objetivo, montoAhorrado: 0 }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });

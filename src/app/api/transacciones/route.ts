@@ -11,11 +11,41 @@ const createTransaccionSchema = z.object({
   idMetodoPago: z.number().int().positive().optional(),
   idFrecuenciaPago: z.number().int().positive().optional(),
   idDeuda: z.number().int().positive().optional(),
+  idObjetivo: z.number().int().positive().optional(),
   monto: z.number().finite().nonnegative(),
   descripcion: z.string().max(300).optional(),
   fecha: z.string().datetime().optional(),
   esIngreso: z.boolean().default(false),
 });
+
+async function validateObjectiveContribution(
+  tx: Prisma.TransactionClient,
+  userId: number,
+  objectiveId: number | undefined,
+  accountId: number,
+  isIncome: boolean,
+) {
+  if (!objectiveId) {
+    return;
+  }
+
+  if (isIncome) {
+    throw new Error("OBJECTIVE_PAYMENT_MUST_BE_EXPENSE");
+  }
+
+  const objetivo = await tx.objetivoFinanciero.findFirst({
+    where: { id: objectiveId, idUsuario: userId },
+    select: { id: true, idCuenta: true },
+  });
+
+  if (!objetivo) {
+    throw new Error("INVALID_OBJECTIVE");
+  }
+
+  if (objetivo.idCuenta && objetivo.idCuenta !== accountId) {
+    throw new Error("OBJECTIVE_ACCOUNT_MISMATCH");
+  }
+}
 
 async function applyDebtPayment(
   tx: Prisma.TransactionClient,
@@ -68,6 +98,7 @@ export async function GET() {
         cuenta: { select: { id: true, nombre: true } },
         categoria: { select: { id: true, descripcion: true } },
         metodoPago: { select: { id: true, nombre: true } },
+        objetivo: { select: { id: true, nombreObjetivo: true } },
         deuda: {
           select: {
             id: true,
@@ -107,9 +138,21 @@ export async function POST(req: Request) {
 
       const monto = new Prisma.Decimal(payload.monto);
 
+      if (payload.idDeuda && payload.idObjetivo) {
+        throw new Error("TRANSACTION_TARGET_CONFLICT");
+      }
+
       if (payload.idDeuda && payload.esIngreso) {
         throw new Error("DEBT_PAYMENT_MUST_BE_EXPENSE");
       }
+
+      await validateObjectiveContribution(
+        tx,
+        userId,
+        payload.idObjetivo,
+        payload.idCuenta,
+        payload.esIngreso,
+      );
 
       const signedAmount = payload.esIngreso ? monto : monto.neg();
       const currentBalance = new Prisma.Decimal(cuenta.saldoActual.toString());
@@ -134,6 +177,7 @@ export async function POST(req: Request) {
           idMetodoPago: payload.idMetodoPago,
           idFrecuenciaPago: payload.idFrecuenciaPago,
           idDeuda: payload.idDeuda,
+          idObjetivo: payload.idObjetivo,
           monto,
           descripcion: payload.descripcion,
           fecha: payload.fecha ? new Date(payload.fecha) : new Date(),
@@ -143,6 +187,7 @@ export async function POST(req: Request) {
           cuenta: { select: { id: true, nombre: true } },
           categoria: { select: { id: true, descripcion: true } },
           metodoPago: { select: { id: true, nombre: true } },
+          objetivo: { select: { id: true, nombreObjetivo: true } },
           deuda: {
             select: {
               id: true,
@@ -191,6 +236,34 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === "DEBT_PAYMENT_EXCEEDS_BALANCE") {
       return NextResponse.json(
         { error: "El abono no puede superar el saldo pendiente de la deuda" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "TRANSACTION_TARGET_CONFLICT") {
+      return NextResponse.json(
+        { error: "La transaccion no puede estar asociada a deuda y objetivo al mismo tiempo" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "INVALID_OBJECTIVE") {
+      return NextResponse.json(
+        { error: "Objetivo invalido para el usuario" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "OBJECTIVE_PAYMENT_MUST_BE_EXPENSE") {
+      return NextResponse.json(
+        { error: "Los abonos a objetivo deben registrarse como gasto" },
+        { status: 400 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "OBJECTIVE_ACCOUNT_MISMATCH") {
+      return NextResponse.json(
+        { error: "La cuenta no coincide con la cuenta asociada al objetivo" },
         { status: 400 },
       );
     }

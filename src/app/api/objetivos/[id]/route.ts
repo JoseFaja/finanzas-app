@@ -79,7 +79,15 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json(updated);
+    const aportes = await prisma.transaccion.aggregate({
+      where: { idUsuario: userId, idObjetivo: objetivoId, esIngreso: false },
+      _sum: { monto: true },
+    });
+
+    return NextResponse.json({
+      ...updated,
+      montoAhorrado: Number(aportes._sum.monto ?? 0),
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
