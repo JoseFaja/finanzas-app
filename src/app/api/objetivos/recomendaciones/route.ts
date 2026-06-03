@@ -89,6 +89,18 @@ function planKeyFromPriorityName(value: string | null | undefined): "high" | "me
   return "medium";
 }
 
+async function hasEstrategiaPlanTipoColumn() {
+  const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'EstrategiaPlan'
+      AND column_name = 'tipoEstrategia'
+  `;
+
+  return columns.length > 0;
+}
+
 function parseGoalId(value: string | null) {
   if (!value) {
     return null;
@@ -249,34 +261,56 @@ async function persistRecommendationPlan(
     }
 
     return {
+      key: plan.key,
+      priorityId,
       descripcion: truncate(
         `${plan.description} | Acciones: ${plan.actions.join("; ")} | Trade-offs: ${plan.tradeoffs.join("; ")}`,
         200,
       ),
-      prioridad: { connect: { id: priorityId } },
     };
   });
+  const hasLegacyTipoEstrategia = await hasEstrategiaPlanTipoColumn();
 
-  const savedPlan = await prisma.planFinanciero.create({
-    data: {
-      idUsuario: userId,
-      ingresoMensualEstimado: new Prisma.Decimal(context.goal.monthlyIncome),
-      gastoMensualEstimado: new Prisma.Decimal(context.goal.monthlyExpenses + context.goal.monthlyDebtCommitment),
-      ahorroSugerido: new Prisma.Decimal(selectedPlan.monthlyContribution),
-      aiAjustado: false,
-      idNivelRiesgo: riskLevelId,
-      idEstado: activeStateId,
-      estrategias: {
-        create: estrategias,
+  const savedPlan = await prisma.$transaction(async (tx) => {
+    const plan = await tx.planFinanciero.create({
+      data: {
+        idUsuario: userId,
+        ingresoMensualEstimado: new Prisma.Decimal(context.goal.monthlyIncome),
+        gastoMensualEstimado: new Prisma.Decimal(context.goal.monthlyExpenses + context.goal.monthlyDebtCommitment),
+        ahorroSugerido: new Prisma.Decimal(selectedPlan.monthlyContribution),
+        aiAjustado: false,
+        idNivelRiesgo: riskLevelId,
+        idEstado: activeStateId,
       },
-    },
-    include: {
-      nivelRiesgo: { select: { nombre: true } },
-      estrategias: {
-        select: { prioridad: { select: { nombre: true } } },
-        orderBy: { id: "asc" },
+    });
+
+    for (const estrategia of estrategias) {
+      if (hasLegacyTipoEstrategia) {
+        await tx.$executeRaw`
+          INSERT INTO "EstrategiaPlan" ("idPlan", "descripcion", "idPrioridad", "tipoEstrategia")
+          VALUES (${plan.id}, ${estrategia.descripcion}, ${estrategia.priorityId}, ${estrategia.key})
+        `;
+      } else {
+        await tx.estrategiaPlan.create({
+          data: {
+            idPlan: plan.id,
+            descripcion: estrategia.descripcion,
+            idPrioridad: estrategia.priorityId,
+          },
+        });
+      }
+    }
+
+    return tx.planFinanciero.findUniqueOrThrow({
+      where: { id: plan.id },
+      include: {
+        nivelRiesgo: { select: { nombre: true } },
+        estrategias: {
+          select: { prioridad: { select: { nombre: true } } },
+          orderBy: { id: "asc" },
+        },
       },
-    },
+    });
   });
 
   const savedPlanKey = planKeyFromPriorityName(savedPlan.estrategias[0]?.prioridad?.nombre);
