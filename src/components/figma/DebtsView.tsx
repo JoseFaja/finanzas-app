@@ -96,6 +96,20 @@ function getProgressBarValue(value: number) {
   return value;
 }
 
+function normalizeNonNegativeInput(value: string) {
+  if (value === "") {
+    return value;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return "0";
+  }
+
+  return String(Math.max(parsed, 0));
+}
+
 export function DebtsView() {
   const [debts, setDebts] = useState<DebtRecord[]>([]);
   const [debtTypes, setDebtTypes] = useState<CatalogItem[]>([]);
@@ -257,16 +271,21 @@ export function DebtsView() {
 
       const idTipoDeuda = await resolveDebtTypeId(newDebt.typeName);
       const saldoPendiente = Number(newDebt.saldoPendiente);
+      const tasaIntereses = Number(newDebt.tasaIntereses);
 
       if (!Number.isFinite(saldoPendiente) || saldoPendiente <= 0) {
         throw new Error("El monto pendiente debe ser mayor a 0");
+      }
+
+      if (!Number.isFinite(tasaIntereses) || tasaIntereses < 0) {
+        throw new Error("La tasa de interes mensual no puede ser negativa");
       }
 
       const payload = {
         idTipoDeuda,
         montoTotal: Number(newDebt.montoTotal),
         saldoPendiente,
-        tasaIntereses: Number(newDebt.tasaIntereses),
+        tasaIntereses,
         cuotas: Number(newDebt.cuotas),
         cuotasPagadas: Number(newDebt.cuotasPagadas),
         idFrecuenciaPago: newDebt.idFrecuenciaPago ? Number(newDebt.idFrecuenciaPago) : undefined,
@@ -490,9 +509,15 @@ export function DebtsView() {
               <Input
                 id="debt-interest"
                 type="number"
+                min="0"
                 step="0.1"
                 value={newDebt.tasaIntereses}
-                onChange={(e) => setNewDebt({ ...newDebt, tasaIntereses: e.target.value })}
+                onChange={(e) =>
+                  setNewDebt({
+                    ...newDebt,
+                    tasaIntereses: normalizeNonNegativeInput(e.target.value),
+                  })
+                }
               />
             </div>
             <Card>

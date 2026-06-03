@@ -8,7 +8,7 @@ const createDeudaSchema = z.object({
   idTipoDeuda: z.number().int().positive(),
   montoTotal: z.number().finite().nonnegative(),
   saldoPendiente: z.number().finite().positive(),
-  tasaIntereses: z.number().finite(),
+  tasaIntereses: z.number().finite().min(0),
   cuotas: z.number().int().positive(),
   cuotasPagadas: z.number().int().min(0).default(0),
   idFrecuenciaPago: z.number().int().positive().optional(),

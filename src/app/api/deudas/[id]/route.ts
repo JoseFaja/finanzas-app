@@ -8,7 +8,7 @@ const updateDebtSchema = z.object({
   idTipoDeuda: z.number().int().positive().optional(),
   montoTotal: z.number().finite().nonnegative().optional(),
   saldoPendiente: z.number().finite().positive().optional(),
-  tasaIntereses: z.number().finite().optional(),
+  tasaIntereses: z.number().finite().min(0).optional(),
   cuotas: z.number().int().positive().optional(),
   cuotasPagadas: z.number().int().nonnegative().optional(),
   idFrecuenciaPago: z.number().int().positive().nullable().optional(),
