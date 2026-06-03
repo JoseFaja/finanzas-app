@@ -263,8 +263,8 @@ async function persistRecommendationPlan(
       ingresoMensualEstimado: new Prisma.Decimal(context.goal.monthlyIncome),
       gastoMensualEstimado: new Prisma.Decimal(context.goal.monthlyExpenses + context.goal.monthlyDebtCommitment),
       ahorroSugerido: new Prisma.Decimal(selectedPlan.monthlyContribution),
-      nivelRiesgo: { connect: { id: riskLevelId } },
-      estado: { connect: { id: activeStateId } },
+      idNivelRiesgo: riskLevelId,
+      idEstado: activeStateId,
       estrategias: {
         create: estrategias,
       },
