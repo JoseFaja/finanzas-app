@@ -2,6 +2,9 @@ import { Prisma } from "@prisma/client";
 
 type PlanKey = "high" | "medium" | "low";
 
+const SCORE_HISTORY_DISPLAY_LIMIT = 12;
+const SCORE_HISTORY_RETENTION_LIMIT = 60;
+
 export interface GoalPlanVariant {
   key: PlanKey;
   title: string;
@@ -74,6 +77,8 @@ export interface ScoreInsightResponse {
     capacidadAhorro: number;
     nivelRiesgo: string | null;
   }>;
+  historialPersistidoLimite: number;
+  historialPersistidoMostrado: number;
 }
 
 interface Snapshot {
@@ -163,13 +168,49 @@ async function persistScoreSnapshot(input: {
   const idNivelRiesgo = await getScoreRiskLevelId(input.score);
   const { prisma } = await import("./prisma");
 
-  await prisma.scoreFinanciero.create({
-    data: {
-      idUsuario: input.userId,
-      puntaje: new Prisma.Decimal(input.score),
-      idNivelRiesgo,
-      ratioGastoIngreso: new Prisma.Decimal(input.ratioGastoIngreso),
-      capacidadAhorro: new Prisma.Decimal(input.capacidadAhorro),
+  await prisma.$transaction(async (tx) => {
+    await tx.scoreFinanciero.create({
+      data: {
+        idUsuario: input.userId,
+        puntaje: new Prisma.Decimal(input.score),
+        idNivelRiesgo,
+        ratioGastoIngreso: new Prisma.Decimal(input.ratioGastoIngreso),
+        capacidadAhorro: new Prisma.Decimal(input.capacidadAhorro),
+      },
+    });
+
+    const staleScores = await tx.scoreFinanciero.findMany({
+      where: { idUsuario: input.userId },
+      orderBy: [{ fechaCalculo: "desc" }, { id: "desc" }],
+      skip: SCORE_HISTORY_RETENTION_LIMIT,
+      select: { id: true },
+    });
+
+    if (staleScores.length > 0) {
+      await tx.scoreFinanciero.deleteMany({
+        where: {
+          idUsuario: input.userId,
+          id: { in: staleScores.map((score) => score.id) },
+        },
+      });
+    }
+  });
+}
+
+async function getPersistedScoreHistory(userId: number) {
+  const { prisma } = await import("./prisma");
+
+  return prisma.scoreFinanciero.findMany({
+    where: { idUsuario: userId },
+    orderBy: [{ fechaCalculo: "desc" }, { id: "desc" }],
+    take: SCORE_HISTORY_DISPLAY_LIMIT,
+    select: {
+      id: true,
+      fechaCalculo: true,
+      puntaje: true,
+      ratioGastoIngreso: true,
+      capacidadAhorro: true,
+      nivelRiesgo: { select: { nombre: true } },
     },
   });
 }
@@ -644,20 +685,6 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
     }),
   ]);
 
-  const historialPersistido = await prisma.scoreFinanciero.findMany({
-    where: { idUsuario: userId },
-    orderBy: { fechaCalculo: "desc" },
-    take: 12,
-    select: {
-      id: true,
-      fechaCalculo: true,
-      puntaje: true,
-      ratioGastoIngreso: true,
-      capacidadAhorro: true,
-      nivelRiesgo: { select: { nombre: true } },
-    },
-  });
-
   const accountBalance = cuentas.reduce((sum, account) => sum + toNumber(account.saldoActual), 0);
   const totalDebt = deudas.reduce((sum, debt) => sum + toNumber(debt.saldoPendiente), 0);
   const debtPayments = transacciones.filter((transaction) => transaction.idDeuda);
@@ -734,6 +761,8 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
         : 1,
     capacidadAhorro: Math.max(averageMonthlyIncome - averageMonthlyExpenses - averageMonthlyDebtPayments, 0),
   });
+
+  const historialPersistido = await getPersistedScoreHistory(userId);
 
   const debtFactor = clamp(Math.round((1 - debtPressure) * 100), 0, 100);
   const savingsFactor = clamp(Math.round(averageSavingsRate * 100), 0, 100);
@@ -817,6 +846,8 @@ export async function buildScoreInsightContext(userId: number): Promise<ScoreIns
       capacidadAhorro: toNumber(registro.capacidadAhorro),
       nivelRiesgo: registro.nivelRiesgo?.nombre ?? null,
     })),
+    historialPersistidoLimite: SCORE_HISTORY_RETENTION_LIMIT,
+    historialPersistidoMostrado: SCORE_HISTORY_DISPLAY_LIMIT,
   };
 }
 

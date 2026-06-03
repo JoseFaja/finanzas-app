@@ -208,6 +208,7 @@ model ObjetivoFinanciero {
   cuenta   Cuenta? @relation(fields: [idCuenta], references: [id])
 
   transacciones Transaccion[]
+  planes        PlanFinanciero[]
 
   @@index([idUsuario])
 }
@@ -217,6 +218,9 @@ model PlanFinanciero {
 
   idUsuario Int
   usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: Cascade)
+
+  idObjetivo Int?
+  objetivo   ObjetivoFinanciero? @relation(fields: [idObjetivo], references: [id], onDelete: Cascade)
 
   fechaGeneracion DateTime @default(now())
 
@@ -234,6 +238,7 @@ model PlanFinanciero {
   estrategias EstrategiaPlan[]
 
   @@index([idUsuario])
+  @@index([idObjetivo])
 }
 
 model EstrategiaPlan {

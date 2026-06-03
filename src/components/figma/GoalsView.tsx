@@ -43,10 +43,12 @@ interface GoalRecord {
   tipoObjetivo: CatalogItem;
   prioridad: CatalogItem | null;
   cuenta: CatalogItem | null;
+  planGuardado?: SavedPlanSummary | null;
 }
 
 interface SavedPlanSummary {
   id: number;
+  idObjetivo: number | null;
   fechaGeneracion: string;
   ahorroSugerido: number;
   ingresoMensualEstimado: number;
@@ -66,6 +68,26 @@ function getStrategyLabel(key: "high" | "medium" | "low") {
   }
 
   return "Bajo impacto";
+}
+
+function toGoalDeadlineIso(dateValue: string) {
+  return new Date(`${dateValue}T12:00:00`).toISOString();
+}
+
+function formatGoalDate(value: string) {
+  const datePart = value.includes("T") ? value.slice(0, 10) : value;
+  const [year, month, day] = datePart.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return "Sin fecha";
+  }
+
+  return new Intl.DateTimeFormat("es-CO", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
 interface GoalPlanResponse {
@@ -195,6 +217,13 @@ export function GoalsView() {
 
         setPlanData(response);
         setSelectedStrategyKey(response.selectedPlanKey ?? selectedPlanKey);
+        if (response.planGuardado) {
+          setGoals((currentGoals) =>
+            currentGoals.map((goal) =>
+              goal.id === response.goal.id ? { ...goal, planGuardado: response.planGuardado } : goal,
+            ),
+          );
+        }
         return response;
       } catch (error) {
         setPlanError(error instanceof Error ? error.message : "No se pudieron cargar las recomendaciones");
@@ -213,18 +242,18 @@ export function GoalsView() {
     async (goalId: number, strategyKey: "high" | "medium" | "low") => {
       setSelectedGoalId(goalId);
       setSelectedStrategyKey(strategyKey);
-      await loadRecommendations(goalId, strategyKey, false);
+      const recommendations = await loadRecommendations(goalId, strategyKey, false);
       requestAnimationFrame(() => {
         planSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
+      return recommendations;
     },
     [loadRecommendations],
   );
 
   const handleEditPlanClick = async (goalId: number, strategyKey: "high" | "medium" | "low") => {
-    await openPlanEditor(goalId, strategyKey);
-    // Prefill form from planData
-    const strategy = planData?.plans?.find((p) => p.key === strategyKey);
+    const recommendations = await openPlanEditor(goalId, strategyKey);
+    const strategy = recommendations?.plans?.find((p) => p.key === strategyKey);
     setPlanEditorForm({
       goalId,
       variant: strategyKey,
@@ -356,7 +385,7 @@ export function GoalsView() {
         nombreObjetivo: newGoal.nombreObjetivo,
         idTipoObjetivo: Number(newGoal.idTipoObjetivo),
         montoMeta: Number(newGoal.montoMeta),
-        fechaLimite: new Date(newGoal.fechaLimite).toISOString(),
+        fechaLimite: toGoalDeadlineIso(newGoal.fechaLimite),
         idPrioridad: newGoal.idPrioridad ? Number(newGoal.idPrioridad) : undefined,
         idCuenta: newGoal.idCuenta ? Number(newGoal.idCuenta) : undefined,
       };
@@ -493,7 +522,9 @@ export function GoalsView() {
             {goals.map((goal) => {
               const goalCurrentAmount = getCurrentAmount(goal);
               const progress = calculateGoalProgress(goal);
-              const savedPlan = planData?.goal?.id === goal.id ? planData.planGuardado : null;
+              const savedPlan =
+                goal.planGuardado ??
+                (planData?.goal?.id === goal.id ? planData.planGuardado : null);
 
               return (
                 <Card
@@ -595,6 +626,10 @@ export function GoalsView() {
                         <div>
                           <p className="text-muted-foreground">Objetivo</p>
                           <p>{formatCurrency(Number(goal.montoMeta))}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Fecha limite</p>
+                          <p>{formatGoalDate(goal.fechaLimite)}</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Cuenta asociada</p>
@@ -1060,6 +1095,14 @@ export function GoalsView() {
                       throw new Error(data?.error || "Error al guardar plan");
                     }
                     setPlanData(data as GoalPlanResponse);
+                    setSelectedStrategyKey((data as GoalPlanResponse).selectedPlanKey);
+                    if (data?.planGuardado && data?.goal?.id) {
+                      setGoals((currentGoals) =>
+                        currentGoals.map((goal) =>
+                          goal.id === data.goal.id ? { ...goal, planGuardado: data.planGuardado } : goal,
+                        ),
+                      );
+                    }
                     setToastMessage("Plan guardado correctamente");
                     setTimeout(() => setToastMessage(null), 3000);
                     setIsPlanEditorOpen(false);
