@@ -295,7 +295,7 @@ export function GoalsView() {
               />
             </div>
             <div>
-              <Label htmlFor="goal-deadline">Fecha límite</Label>
+              <Label htmlFor="goal-deadline">Fecha Aproximada</Label>
               <Input
                 id="goal-deadline"
                 type="date"
